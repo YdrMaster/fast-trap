@@ -1,4 +1,4 @@
-﻿use crate::{ContextPtr, TrapHandler};
+﻿use crate::{ContextPtr, EntireHandler, TrapHandler};
 
 /// 快速路径函数。
 pub type FastHandler<T> = extern "C" fn(
@@ -57,11 +57,12 @@ impl<T> FastContext<T> {
         ctx.a[7] = a7;
     }
 
-    /// 向完整路径传递对象 `t`。
+    /// 向完整路径 `f` 传递对象 `t`。
     ///
     /// > **NOTICE** 必须先手工调用 `save_args`，或通过其他方式设置参数寄存器。
     #[inline]
-    pub fn continue_with(&mut self, t: T) -> FastResult {
+    pub fn continue_with(&mut self, f: EntireHandler<T>, t: T) -> FastResult {
+        self.0.entire_handler = f;
         self.0.extra = t;
         FastResult::Continue
     }

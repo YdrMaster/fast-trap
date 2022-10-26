@@ -1,6 +1,8 @@
+//! 快速陷入处理。
+
 #![no_std]
 #![feature(naked_functions)]
-#![deny(warnings)]
+#![deny(warnings, missing_docs)]
 
 mod entire;
 mod fast;
@@ -8,7 +10,7 @@ mod fast;
 pub use entire::*;
 pub use fast::*;
 
-use core::ptr::NonNull;
+use core::{alloc::Layout, ptr::NonNull};
 
 /// 陷入处理器上下文。
 #[repr(C)]
@@ -30,6 +32,40 @@ pub struct TrapHandler<T> {
     entire_handler: EntireHandler<T>,
     /// 补充信息，用于从快速路径向完整路径传递信息。
     extra: T,
+}
+
+impl<T> TrapHandler<T> {
+    const LAYOUT: Layout = Layout::new::<Self>();
+
+    /// 在一个栈帧上初始化陷入处理器上下文，并返回上下文指针。
+    #[inline]
+    pub fn new_in(stack: &mut [u8], fast_handler: FastHandler<T>) -> TrapHandlerPtr<T> {
+        let top = stack.as_ptr_range().end as usize;
+        assert!(top.trailing_zeros() > Self::LAYOUT.align().trailing_zeros());
+
+        let ptr = (top - Self::LAYOUT.size()) & !(Self::LAYOUT.align() - 1);
+        let mut ptr = NonNull::new(ptr as *mut Self).unwrap();
+        unsafe { ptr.as_mut() }.fast_handler = fast_handler;
+
+        TrapHandlerPtr(ptr)
+    }
+}
+
+/// 指向一个陷入上下文的指针。
+///
+/// 通过这个指针还能找到存放上下文的栈的高地址。
+#[repr(transparent)]
+pub struct TrapHandlerPtr<T>(NonNull<TrapHandler<T>>);
+
+impl<T> TrapHandlerPtr<T> {
+    const LAYOUT: Layout = TrapHandler::<T>::LAYOUT;
+
+    /// 通过上下文指针找到栈顶。
+    #[inline]
+    pub fn stack_top(&self) -> usize {
+        let mask = Self::LAYOUT.align() - 1;
+        (self.0.as_ptr() as usize + Self::LAYOUT.size() + mask) & !mask
+    }
 }
 
 /// 陷入上下文指针。
@@ -59,6 +95,7 @@ impl ContextPtr {
 ///
 /// 保存了陷入时的寄存器状态。包括所有通用寄存器和 `pc`。
 #[repr(C)]
+#[allow(missing_docs)]
 pub struct TrapContext {
     pub ra: usize,      // 0..
     pub t: [usize; 7],  // 1..
