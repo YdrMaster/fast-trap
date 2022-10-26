@@ -10,7 +10,49 @@ mod fast;
 pub use entire::*;
 pub use fast::*;
 
-use core::{alloc::Layout, ptr::NonNull};
+use core::{alloc::Layout, arch::asm, marker::PhantomData, ptr::NonNull};
+
+/// 陷入栈。
+#[repr(transparent)]
+pub struct TrapStack<B: AsRef<[u8]> + AsMut<[u8]>, T>(B, PhantomData<T>);
+
+/// 构造陷入栈失败。
+pub struct IllegalStack;
+
+impl<B: AsRef<[u8]> + AsMut<[u8]>, T> TrapStack<B, T> {
+    /// 将内存块配置为使用 `fast_handler` 完成快速路径的陷入栈。
+    pub fn new(mut block: B, fast_handler: FastHandler<T>) -> Result<Self, IllegalStack> {
+        let slice = block.as_mut();
+        let ptr = Self::locate_ptr(slice);
+        if ptr >= slice.as_ptr() as usize {
+            unsafe { &mut *(ptr as *mut TrapHandler<T>) }.fast_handler = fast_handler;
+            Ok(Self(block, PhantomData))
+        } else {
+            Err(IllegalStack)
+        }
+    }
+
+    /// 将这个内核栈加载为预备陷入栈。返回 `sscratch` 寄存器中原本的值。
+    ///
+    /// # Safety
+    ///
+    /// 在 RISC-V 中，陷入栈被保存在 `sscratch` 寄存器中。
+    /// 这个函数本质上是将当前栈的指针存入 `sscratch`，这会替换掉 `sscratch` 原来的值。
+    /// 这个值很可能是重要的，保存它是用户的责任。
+    #[inline]
+    pub unsafe fn load(&self) -> usize {
+        let mut sscratch = Self::locate_ptr(self.0.as_ref());
+        asm!("csrrw {0}, sscratch, {0}", inlateout(reg) sscratch);
+        sscratch
+    }
+
+    /// 在内存块上定位一个处理器上下文。
+    #[inline]
+    fn locate_ptr(slice: &[u8]) -> usize {
+        let layout = Layout::new::<TrapHandler<T>>();
+        (slice.as_ptr_range().end as usize - layout.size()) & !(layout.size() - 1)
+    }
+}
 
 /// 陷入处理器上下文。
 #[repr(C)]
@@ -34,40 +76,6 @@ pub struct TrapHandler<T> {
     extra: T,
 }
 
-impl<T> TrapHandler<T> {
-    const LAYOUT: Layout = Layout::new::<Self>();
-
-    /// 在一个栈帧上初始化陷入处理器上下文，并返回上下文指针。
-    #[inline]
-    pub fn new_in(stack: &mut [u8], fast_handler: FastHandler<T>) -> TrapHandlerPtr<T> {
-        let top = stack.as_ptr_range().end as usize;
-        assert!(top.trailing_zeros() > Self::LAYOUT.align().trailing_zeros());
-
-        let ptr = (top - Self::LAYOUT.size()) & !(Self::LAYOUT.align() - 1);
-        let mut ptr = NonNull::new(ptr as *mut Self).unwrap();
-        unsafe { ptr.as_mut() }.fast_handler = fast_handler;
-
-        TrapHandlerPtr(ptr)
-    }
-}
-
-/// 指向一个陷入上下文的指针。
-///
-/// 通过这个指针还能找到存放上下文的栈的高地址。
-#[repr(transparent)]
-pub struct TrapHandlerPtr<T>(NonNull<TrapHandler<T>>);
-
-impl<T> TrapHandlerPtr<T> {
-    const LAYOUT: Layout = TrapHandler::<T>::LAYOUT;
-
-    /// 通过上下文指针找到栈顶。
-    #[inline]
-    pub fn stack_top(&self) -> usize {
-        let mask = Self::LAYOUT.align() - 1;
-        (self.0.as_ptr() as usize + Self::LAYOUT.size() + mask) & !mask
-    }
-}
-
 /// 陷入上下文指针。
 #[repr(transparent)]
 pub struct ContextPtr(NonNull<TrapContext>);
@@ -77,7 +85,7 @@ impl ContextPtr {
     #[inline]
     unsafe fn load_regs(&self) {
         let ctx = self.0.as_ref();
-        core::arch::  asm!(
+        asm!(
             "   mv         gp, {gp}
                 mv         tp, {tp}
                 csrw sscratch, {sp}
@@ -115,7 +123,7 @@ pub fn trap_entry() -> usize {
 
 #[naked]
 unsafe extern "C" fn trap() {
-    core::arch::asm!(
+    asm!(
         ".align 2",
         // 换栈
         "   csrrw sp, sscratch, sp",
