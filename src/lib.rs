@@ -115,14 +115,19 @@ pub struct TrapContext {
     pub pc: usize,      // 31..
 }
 
-/// 陷入入口地址。
+/// 设置全局陷入入口。
+///
+/// # Safety
+///
+/// 这个函数操作硬件寄存器，寄存器里原本的值将丢弃。
 #[inline]
-pub fn trap_entry() -> usize {
-    trap as _
+pub unsafe fn load_direct_trap_entry() {
+    asm!("csrw stvec, {0}", in(reg) trap, options(nomem))
 }
 
+/// 陷入处理例程。
 #[naked]
-unsafe extern "C" fn trap() {
+pub unsafe extern "C" fn trap() {
     asm!(
         ".align 2",
         // 换栈
