@@ -1,0 +1,9 @@
+[package]
+name = "fast-trap"
+version = "0.0.1"
+edition = "2021"
+authors = ["YdrMaster <ydrml@hotmail.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]

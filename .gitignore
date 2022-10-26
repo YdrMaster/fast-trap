@@ -1,0 +1,7 @@
+**/.*/*
+!**/.cargo/*
+!/.github/*
+!/.vscode/settings.json
+
+/target
+/Cargo.lock
