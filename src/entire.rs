@@ -7,6 +7,8 @@ pub type EntireHandler<T> = extern "C" fn(ctx: &mut EntireContext<T>) -> EntireR
 #[repr(transparent)]
 pub struct EntireContext<T>(TrapHandler<T>);
 
+impl<T> EntireContext<T> {}
+
 /// 完整路径处理结果。
 #[repr(usize)]
 pub enum EntireResult {

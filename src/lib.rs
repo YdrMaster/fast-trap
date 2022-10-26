@@ -122,12 +122,16 @@ pub struct TrapContext {
 /// 这个函数操作硬件寄存器，寄存器里原本的值将丢弃。
 #[inline]
 pub unsafe fn load_direct_trap_entry() {
-    asm!("csrw stvec, {0}", in(reg) trap, options(nomem))
+    asm!("csrw stvec, {0}", in(reg) trap_entry, options(nomem))
 }
 
 /// 陷入处理例程。
+///
+/// # Safety
+///
+/// 不要直接调用这个函数。暴露它仅仅是为了提供其入口的符号链接。
 #[naked]
-pub unsafe extern "C" fn trap() {
+pub unsafe extern "C" fn trap_entry() {
     asm!(
         ".align 2",
         // 换栈

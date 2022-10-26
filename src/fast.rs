@@ -28,10 +28,22 @@ impl<T> FastContext<T> {
         self.0.scratch
     }
 
+    /// 修改陷入上下文的参数寄存器组。
+    #[inline]
+    pub fn write_a(&mut self, i: usize, val: usize) {
+        unsafe { self.0.context.0.as_mut() }.a[i] = val;
+    }
+
     /// 访问陷入上下文的临时寄存器组。
     #[inline]
     pub fn t(&self, i: usize) -> usize {
         unsafe { self.0.context.0.as_ref() }.t[i]
+    }
+
+    /// 访问陷入上下文的临时寄存器组。
+    #[inline]
+    pub fn t_mut(&mut self, i: usize) -> &mut usize {
+        &mut unsafe { self.0.context.0.as_mut() }.t[i]
     }
 
     /// 将所有参数寄存器保存到陷入上下文。
