@@ -69,14 +69,16 @@ impl<T> FastContext<T> {
         ctx.a[7] = a7;
     }
 
-    /// 向完整路径 `f` 传递对象 `t`。
-    ///
-    /// > **NOTICE** 必须先手工调用 `save_args`，或通过其他方式设置参数寄存器。
+    /// 丢弃当前上下文，并启动一个带有 `argc` 个参数的新上下文。
     #[inline]
-    pub fn continue_with(&mut self, f: EntireHandler<T>, t: T) -> FastResult {
-        self.0.entire_handler = f;
-        self.0.extra = t;
-        FastResult::Continue
+    pub fn call(&mut self, new: ContextPtr, argc: usize) -> FastResult {
+        unsafe { new.load_regs() };
+        self.0.context = new;
+        if argc <= 2 {
+            FastResult::Call
+        } else {
+            FastResult::ComplexCall
+        }
     }
 
     /// 从快速路径恢复。
@@ -95,30 +97,28 @@ impl<T> FastContext<T> {
         FastResult::Switch
     }
 
-    /// 丢弃当前上下文，并启动一个带有 `argc` 个参数的新上下文。
+    /// 向完整路径 `f` 传递对象 `t`。
+    ///
+    /// > **NOTICE** 必须先手工调用 `save_args`，或通过其他方式设置参数寄存器。
     #[inline]
-    pub fn call(&mut self, new: ContextPtr, argc: usize) -> FastResult {
-        unsafe { new.load_regs() };
-        self.0.context = new;
-        if argc > 2 {
-            FastResult::ComplexCall
-        } else {
-            FastResult::Call
-        }
+    pub fn continue_with(&mut self, f: EntireHandler<T>, t: T) -> FastResult {
+        self.0.entire_handler = f;
+        self.0.extra = t;
+        FastResult::Continue
     }
 }
 
 /// 快速路径处理结果。
 #[repr(usize)]
 pub enum FastResult {
-    /// 调用完整路径函数。
-    Continue = 0,
-    /// 直接切换到另一个上下文。
-    Switch = 1,
+    /// 调用新上下文，只需设置 2 个或更少参数。
+    Call = 0,
+    /// 调用新上下文，需要设置超过 2 个参数。
+    ComplexCall = 1,
     /// 从快速路径直接返回。
     Restore = 2,
-    /// 调用新上下文，需要设置超过 2 个参数。
-    ComplexCall = 3,
-    /// 调用新上下文，只需设置 2 个或更少参数。
-    Call = 4,
+    /// 直接切换到另一个上下文。
+    Switch = 3,
+    /// 调用完整路径函数。
+    Continue = 4,
 }

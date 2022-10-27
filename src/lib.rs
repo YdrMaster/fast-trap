@@ -171,29 +171,24 @@ pub unsafe extern "C" fn trap_entry() {
             ld    ra,  2*8(sp)
             jalr  ra
         ",
-        "   beqz  a0, 0f",
         // 加载上下文指针
-        "   ld    a1,  1*8(sp)",
-        // 1：设置所有寄存器
-        "1: addi  a0, a0, -1
+        "0: ld    a1,  1*8(sp)",
+        // 0：设置少量参数寄存器
+        "   beqz  a0, 0f",
+        // 1：设置所有参数寄存器
+        "   addi  a0, a0, -1
             beqz  a0, 1f
         ",
-        // 2：设置调用者寄存器
+        // 2：设置所有调用者寄存器
         "   addi  a0, a0, -1
             beqz  a0, 2f
         ",
-        // 3：设置所有参数寄存器
+        // 3：设置所有寄存器
         "   addi  a0, a0, -1
             beqz  a0, 3f
         ",
-        // 4：设置少量参数寄存器
-        "   addi  a0, a0, -1
-            beqz  a0, 4f
-        ",
-        // unreachable!
-        "   unimp",
-        // 保存其他寄存器
-        "0: ld    a0,  1*8(sp)
+        // 4：完整路径
+        "   ld    a0,  1*8(sp)
             sd    s0, 16*8(a0)
             sd    s1, 17*8(a0)
             sd    s2, 18*8(a0)
@@ -222,10 +217,10 @@ pub unsafe extern "C" fn trap_entry() {
         "   mv    a0,      sp
             ld    ra,  3*8(sp)
             jalr  ra
-            j     1b
+            j     0b
         ",
-        // 恢复所有寄存器
-        "1: ld    s0, 16*8(a1)
+        // 设置所有寄存器
+        "3: ld    s0, 16*8(a1)
             ld    s1, 17*8(a1)
             ld    s2, 18*8(a1)
             ld    s3, 19*8(a1)
@@ -249,7 +244,7 @@ pub unsafe extern "C" fn trap_entry() {
             ld    t6,  7*8(a1)
         ",
         // 设置所有参数寄存器
-        "3: ld    a2, 10*8(a1)
+        "1: ld    a2, 10*8(a1)
             ld    a3, 11*8(a1)
             ld    a4, 12*8(a1)
             ld    a5, 13*8(a1)
@@ -257,7 +252,7 @@ pub unsafe extern "C" fn trap_entry() {
             ld    a7, 15*8(a1)
         ",
         // 设置少量参数寄存器
-        "4: ld    a0,  8*8(a1)
+        "0: ld    a0,  8*8(a1)
             ld    a1,  9*8(a1)
             csrrw sp, sscratch, sp
             sret
