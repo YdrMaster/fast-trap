@@ -1,8 +1,8 @@
 ﻿use crate::{ContextPtr, EntireHandler, TrapHandler};
 
 /// 快速路径函数。
-pub type FastHandler<T> = extern "C" fn(
-    ctx: FastContext<T>,
+pub type FastHandler = extern "C" fn(
+    ctx: FastContext,
     a1: usize,
     a2: usize,
     a3: usize,
@@ -16,9 +16,9 @@ pub type FastHandler<T> = extern "C" fn(
 ///
 /// 将陷入处理器上下文中在快速路径中可安全操作的部分暴露给快速路径函数。
 #[repr(transparent)]
-pub struct FastContext<T: 'static>(&'static mut TrapHandler<T>);
+pub struct FastContext(&'static mut TrapHandler);
 
-impl<T: 'static> FastContext<T> {
+impl FastContext {
     /// 访问陷入上下文的 a0 寄存器。
     ///
     /// 由于 a0 寄存器在快速路径中用于传递上下文指针，
@@ -101,9 +101,10 @@ impl<T: 'static> FastContext<T> {
     ///
     /// > **NOTICE** 必须先手工调用 `save_args`，或通过其他方式设置参数寄存器。
     #[inline]
-    pub fn continue_with(self, f: EntireHandler<T>, t: T) -> FastResult {
-        self.0.entire_handler = f;
-        self.0.extra = Some(t);
+    pub fn continue_with<T: 'static>(self, f: EntireHandler<T>, t: T) -> FastResult {
+        // TODO 检查栈溢出
+        unsafe { *(self.0.range.start as *mut T) = t };
+        self.0.scratch = f as _;
         FastResult::Continue
     }
 }

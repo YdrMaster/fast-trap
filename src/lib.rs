@@ -10,55 +10,102 @@ mod fast;
 pub use entire::*;
 pub use fast::*;
 
-use core::{alloc::Layout, arch::asm, marker::PhantomData, ptr::NonNull};
+use core::{alloc::Layout, arch::asm, mem::forget, ops::Range, ptr::NonNull};
 
-/// 陷入栈。
-#[repr(transparent)]
-pub struct TrapStack<B: AsRef<[u8]> + AsMut<[u8]>, T>(B, PhantomData<T>);
+/// 游离的陷入栈。
+pub struct FreeTrapStack(NonNull<TrapHandler>);
+
+/// 已加载的陷入栈。
+pub struct LoadedTrapStack(usize);
 
 /// 构造陷入栈失败。
 pub struct IllegalStack;
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>, T> TrapStack<B, T> {
-    /// 将内存块配置为使用 `fast_handler` 完成快速路径的陷入栈。
-    pub fn new(mut block: B, fast_handler: FastHandler<T>) -> Result<Self, IllegalStack> {
-        let slice = block.as_mut();
-        let ptr = Self::locate_ptr(slice);
-        if ptr >= slice.as_ptr() as usize {
-            unsafe { &mut *(ptr as *mut TrapHandler<T>) }.fast_handler = fast_handler;
-            Ok(Self(block, PhantomData))
+/// 丢弃陷入栈。
+type TrapStackDropper = unsafe fn(&'static mut [u8]);
+
+impl FreeTrapStack {
+    /// 在内存块上构造游离的陷入栈。
+    pub fn new(
+        block: &'static mut [u8],
+        fast_handler: FastHandler,
+        dropper: TrapStackDropper,
+    ) -> Result<Self, IllegalStack> {
+        let range = block.as_ptr_range();
+        let bottom = range.start as usize;
+        let top = range.end as usize;
+        let ptr = Self::locate_ptr(top);
+        if ptr >= bottom {
+            let handler = unsafe { &mut *(ptr as *mut TrapHandler) };
+            handler.range = bottom..top;
+            handler.fast_handler = fast_handler;
+            handler.drop = dropper;
+            Ok(Self(unsafe { NonNull::new_unchecked(handler) }))
         } else {
             Err(IllegalStack)
         }
     }
 
-    /// 将这个内核栈加载为预备陷入栈。返回 `sscratch` 寄存器中原本的值。
-    ///
-    /// # Safety
-    ///
-    /// 在 RISC-V 中，陷入栈被保存在 `sscratch` 寄存器中。
-    /// 这个函数本质上是将当前栈的指针存入 `sscratch`，这会替换掉 `sscratch` 原来的值。
-    /// 这个值很可能是重要的，保存它是用户的责任。
+    /// 将这个陷入栈加载为预备陷入栈。
     #[inline]
-    pub unsafe fn load(&self) -> usize {
-        let mut sscratch = Self::locate_ptr(self.0.as_ref());
-        asm!("csrrw {0}, sscratch, {0}", inlateout(reg) sscratch);
-        sscratch
+    pub fn load(self) -> LoadedTrapStack {
+        let mut sscratch = Self::locate_ptr(unsafe { self.0.as_ref().range.end });
+        forget(self);
+        unsafe { asm!("csrrw {0}, sscratch, {0}", inlateout(reg) sscratch) };
+        LoadedTrapStack(sscratch)
     }
 
     /// 在内存块上定位一个处理器上下文。
     #[inline]
-    fn locate_ptr(slice: &[u8]) -> usize {
-        let layout = Layout::new::<TrapHandler<T>>();
-        (slice.as_ptr_range().end as usize - layout.size()) & !(layout.size() - 1)
+    fn locate_ptr(top: usize) -> usize {
+        const LAYOUT: Layout = Layout::new::<TrapHandler>();
+        (top - LAYOUT.size()) & !(LAYOUT.align() - 1)
+    }
+}
+
+impl Drop for FreeTrapStack {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe {
+            let handler = self.0.as_ref();
+            (handler.drop)(core::slice::from_raw_parts_mut(
+                handler.range.start as *mut u8,
+                handler.range.len(),
+            ));
+        }
+    }
+}
+
+impl LoadedTrapStack {
+    /// 获取从 `sscratch` 寄存器中换出的值。
+    #[inline]
+    pub const fn val(&self) -> usize {
+        self.0
+    }
+
+    /// 卸载陷入栈。
+    #[inline]
+    pub fn unload(self) -> FreeTrapStack {
+        let mut sscratch = self.0;
+        forget(self);
+        unsafe { asm!("csrrw {0}, sscratch, {0}", inlateout(reg) sscratch) };
+        FreeTrapStack(unsafe { NonNull::new_unchecked(sscratch as _) })
+    }
+}
+
+impl Drop for LoadedTrapStack {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe { asm!("csrrw {0}, sscratch, {0}", inlateout(reg) self.0) };
+        drop(FreeTrapStack(unsafe {
+            NonNull::new_unchecked(self.0 as _)
+        }))
     }
 }
 
 /// 陷入处理器上下文。
 #[repr(C)]
-pub struct TrapHandler<T: 'static> {
-    /// 在快速路径中暂存 a0。
-    scratch: usize,
+pub struct TrapHandler {
     /// 指向一个陷入上下文的指针。
     ///
     /// - 发生陷入时，将寄存器保存到此对象。
@@ -67,13 +114,16 @@ pub struct TrapHandler<T: 'static> {
     /// 快速路径函数。
     ///
     /// 必须在初始化陷入时设置好。
-    fast_handler: FastHandler<T>,
-    /// 完整路径函数。
+    fast_handler: FastHandler,
+    /// 可在汇编使用的临时存储。
     ///
-    /// 可以在初始化陷入时设置好，也可以在快速路径中设置。
-    entire_handler: EntireHandler<T>,
-    /// 补充信息，用于从快速路径向完整路径传递信息。
-    extra: Option<T>,
+    /// - 在快速路径开始时暂存 a0。
+    /// - 在快速路径结束时保存完整路径函数。
+    scratch: usize,
+    /// 地址范围。
+    range: Range<usize>,
+    /// 析构函数。
+    drop: TrapStackDropper,
 }
 
 /// 陷入上下文指针。
@@ -137,8 +187,8 @@ pub unsafe extern "C" fn trap_entry() {
         // 换栈
         "   csrrw sp, sscratch, sp",
         // 加载上下文指针
-        "   sd    a0,  0*8(sp)
-            ld    a0,  1*8(sp)
+        "   sd    a0,  2*8(sp)
+            ld    a0,  0*8(sp)
         ",
         // 保存尽量少的寄存器
         "   sd    ra,  0*8(a0)
@@ -168,11 +218,11 @@ pub unsafe extern "C" fn trap_entry() {
         // >
         // > 若要切换上下文，在快速路径设置 gp/tp/sscratch/sepc 和 sstatus。
         "   mv    a0,      sp
-            ld    ra,  2*8(sp)
+            ld    ra,  1*8(sp)
             jalr  ra
         ",
         // 加载上下文指针
-        "0: ld    a1,  1*8(sp)",
+        "0: ld    a1,  0*8(sp)",
         // 0：设置少量参数寄存器
         "   beqz  a0, 0f",
         // 1：设置所有参数寄存器
@@ -214,7 +264,7 @@ pub unsafe extern "C" fn trap_entry() {
         // >
         // > 若要切换上下文，在完整路径设置 gp/tp/sscratch/sepc 和 sstatus。
         "   mv    a0,      sp
-            ld    ra,  3*8(sp)
+            ld    ra,  2*8(sp)
             jalr  ra
             j     0b
         ",
