@@ -168,4 +168,19 @@ trap Lv.2             δ-->1
 
 ### 根控制流
 
-WIP
+用户可以自由设计根控制流，或者在根控制流中做任何事。只需要通过库定义的上下文结构体与即可与库交互。上下文结构体的定义如下：
+
+```rust
+struct FlowContext {
+    pub ra: usize,
+    pub t: [usize; 7],
+    pub a: [usize; 8],
+    pub s: [usize; 12],
+    pub gp: usize,
+    pub tp: usize,
+    pub sp: usize,
+    pub pc: usize,
+}
+```
+
+包括 31 个通用寄存器和 pc 指针。其他系统状态寄存器，例如 RISC-V 的 `sstatus`、`stval`、`scause` 等，由用户自行管理。

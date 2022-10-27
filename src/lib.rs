@@ -10,7 +10,13 @@ mod fast;
 pub use entire::*;
 pub use fast::*;
 
-use core::{alloc::Layout, arch::asm, mem::forget, ops::Range, ptr::NonNull};
+use core::{
+    alloc::Layout,
+    arch::asm,
+    mem::{align_of, forget},
+    ops::Range,
+    ptr::NonNull,
+};
 
 /// 游离的陷入栈。
 pub struct FreeTrapStack(NonNull<TrapHandler>);
@@ -120,9 +126,20 @@ pub struct TrapHandler {
     drop: TrapStackDropper,
 }
 
+impl TrapHandler {
+    /// 如果从快速路径向完整路径转移，可以把一个对象放在栈底。
+    /// 用这个方法找到栈底的一个对齐的位置。
+    #[inline]
+    fn locate_fast_mail<T>(&self) -> *mut T {
+        let bottom = self.range.start as *mut u8;
+        let offset = bottom.align_offset(align_of::<T>());
+        unsafe { &mut *bottom.add(offset).cast() }
+    }
+}
+
 /// 陷入上下文指针。
 #[repr(transparent)]
-pub struct ContextPtr(NonNull<TrapContext>);
+pub struct ContextPtr(NonNull<FlowContext>);
 
 impl ContextPtr {
     /// 从上下文向硬件加载非调用规范约定的寄存器。
@@ -148,7 +165,7 @@ impl ContextPtr {
 /// 保存了陷入时的寄存器状态。包括所有通用寄存器和 `pc`。
 #[repr(C)]
 #[allow(missing_docs)]
-pub struct TrapContext {
+pub struct FlowContext {
     pub ra: usize,      // 0..
     pub t: [usize; 7],  // 1..
     pub a: [usize; 8],  // 8..

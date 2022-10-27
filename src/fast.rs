@@ -75,9 +75,9 @@ impl FastContext {
         unsafe { new.load_regs() };
         self.0.context = new;
         if argc <= 2 {
-            FastResult::Call
+            FastResult::FastCall
         } else {
-            FastResult::ComplexCall
+            FastResult::Call
         }
     }
 
@@ -103,7 +103,7 @@ impl FastContext {
     #[inline]
     pub fn continue_with<T: 'static>(self, f: EntireHandler<T>, t: T) -> FastResult {
         // TODO 检查栈溢出
-        unsafe { *(self.0.range.start as *mut T) = t };
+        unsafe { *self.0.locate_fast_mail() = t };
         self.0.scratch = f as _;
         FastResult::Continue
     }
@@ -113,9 +113,9 @@ impl FastContext {
 #[repr(usize)]
 pub enum FastResult {
     /// 调用新上下文，只需设置 2 个或更少参数。
-    Call = 0,
+    FastCall = 0,
     /// 调用新上下文，需要设置超过 2 个参数。
-    ComplexCall = 1,
+    Call = 1,
     /// 从快速路径直接返回。
     Restore = 2,
     /// 直接切换到另一个上下文。
