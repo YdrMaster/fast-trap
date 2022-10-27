@@ -1,13 +1,20 @@
 ﻿use crate::TrapHandler;
 
 /// 完整路径函数。
-pub type EntireHandler<T> = extern "C" fn(ctx: &mut EntireContext<T>) -> EntireResult;
+pub type EntireHandler<T> = extern "C" fn(ctx: EntireContext<T>) -> EntireResult;
 
 /// 完整路径上下文。
 #[repr(transparent)]
-pub struct EntireContext<T>(TrapHandler<T>);
+pub struct EntireContext<T: 'static>(&'static mut TrapHandler<T>);
 
-impl<T> EntireContext<T> {}
+impl<T: 'static> EntireContext<T> {}
+
+impl<T: 'static> Drop for EntireContext<T> {
+    #[inline]
+    fn drop(&mut self) {
+        drop(self.0.extra.take());
+    }
+}
 
 /// 完整路径处理结果。
 #[repr(usize)]

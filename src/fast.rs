@@ -2,7 +2,7 @@
 
 /// 快速路径函数。
 pub type FastHandler<T> = extern "C" fn(
-    ctx: &mut FastContext<T>,
+    ctx: FastContext<T>,
     a1: usize,
     a2: usize,
     a3: usize,
@@ -16,9 +16,9 @@ pub type FastHandler<T> = extern "C" fn(
 ///
 /// 将陷入处理器上下文中在快速路径中可安全操作的部分暴露给快速路径函数。
 #[repr(transparent)]
-pub struct FastContext<T>(TrapHandler<T>);
+pub struct FastContext<T: 'static>(&'static mut TrapHandler<T>);
 
-impl<T> FastContext<T> {
+impl<T: 'static> FastContext<T> {
     /// 访问陷入上下文的 a0 寄存器。
     ///
     /// 由于 a0 寄存器在快速路径中用于传递上下文指针，
@@ -71,7 +71,7 @@ impl<T> FastContext<T> {
 
     /// 丢弃当前上下文，并启动一个带有 `argc` 个参数的新上下文。
     #[inline]
-    pub fn call(&mut self, new: ContextPtr, argc: usize) -> FastResult {
+    pub fn call(self, new: ContextPtr, argc: usize) -> FastResult {
         unsafe { new.load_regs() };
         self.0.context = new;
         if argc <= 2 {
@@ -85,13 +85,13 @@ impl<T> FastContext<T> {
     ///
     /// > **NOTICE** 必须先手工调用 `save_args`，或通过其他方式设置参数寄存器。
     #[inline]
-    pub fn restore(&mut self) -> FastResult {
+    pub fn restore(self) -> FastResult {
         FastResult::Restore
     }
 
     /// 丢弃当前上下文，并直接切换到另一个上下文。
     #[inline]
-    pub fn switch_to(&mut self, others: ContextPtr) -> FastResult {
+    pub fn switch_to(self, others: ContextPtr) -> FastResult {
         unsafe { others.load_regs() };
         self.0.context = others;
         FastResult::Switch
@@ -101,9 +101,9 @@ impl<T> FastContext<T> {
     ///
     /// > **NOTICE** 必须先手工调用 `save_args`，或通过其他方式设置参数寄存器。
     #[inline]
-    pub fn continue_with(&mut self, f: EntireHandler<T>, t: T) -> FastResult {
+    pub fn continue_with(self, f: EntireHandler<T>, t: T) -> FastResult {
         self.0.entire_handler = f;
-        self.0.extra = t;
+        self.0.extra = Some(t);
         FastResult::Continue
     }
 }

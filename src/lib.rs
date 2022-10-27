@@ -56,7 +56,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>, T> TrapStack<B, T> {
 
 /// 陷入处理器上下文。
 #[repr(C)]
-pub struct TrapHandler<T> {
+pub struct TrapHandler<T: 'static> {
     /// 在快速路径中暂存 a0。
     scratch: usize,
     /// 指向一个陷入上下文的指针。
@@ -73,7 +73,7 @@ pub struct TrapHandler<T> {
     /// 可以在初始化陷入时设置好，也可以在快速路径中设置。
     entire_handler: EntireHandler<T>,
     /// 补充信息，用于从快速路径向完整路径传递信息。
-    extra: T,
+    extra: Option<T>,
 }
 
 /// 陷入上下文指针。
@@ -188,19 +188,18 @@ pub unsafe extern "C" fn trap_entry() {
             beqz  a0, 3f
         ",
         // 4：完整路径
-        "   ld    a0,  1*8(sp)
-            sd    s0, 16*8(a0)
-            sd    s1, 17*8(a0)
-            sd    s2, 18*8(a0)
-            sd    s3, 19*8(a0)
-            sd    s4, 20*8(a0)
-            sd    s5, 21*8(a0)
-            sd    s6, 22*8(a0)
-            sd    s7, 23*8(a0)
-            sd    s8, 24*8(a0)
-            sd    s9, 25*8(a0)
-            sd    s10,26*8(a0)
-            sd    s11,27*8(a0)
+        "   sd    s0, 16*8(a1)
+            sd    s1, 17*8(a1)
+            sd    s2, 18*8(a1)
+            sd    s3, 19*8(a1)
+            sd    s4, 20*8(a1)
+            sd    s5, 21*8(a1)
+            sd    s6, 22*8(a1)
+            sd    s7, 23*8(a1)
+            sd    s8, 24*8(a1)
+            sd    s9, 25*8(a1)
+            sd    s10,26*8(a1)
+            sd    s11,27*8(a1)
         ",
         // 调用完整路径函数
         //
