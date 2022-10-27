@@ -44,7 +44,7 @@ jobs:
         run:
           cargo clippy
           --target riscv64imac-unknown-none-elf
-          --all-features --workspace
+          --package fast-trap
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
 
