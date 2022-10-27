@@ -31,10 +31,11 @@ impl FreeTrapStack {
         fast_handler: FastHandler,
         dropper: TrapStackDropper,
     ) -> Result<Self, IllegalStack> {
+        const LAYOUT: Layout = Layout::new::<TrapHandler>();
         let range = block.as_ptr_range();
         let bottom = range.start as usize;
         let top = range.end as usize;
-        let ptr = Self::locate_ptr(top);
+        let ptr = (top - LAYOUT.size()) & !(LAYOUT.align() - 1);
         if ptr >= bottom {
             let handler = unsafe { &mut *(ptr as *mut TrapHandler) };
             handler.range = bottom..top;
@@ -49,17 +50,10 @@ impl FreeTrapStack {
     /// 将这个陷入栈加载为预备陷入栈。
     #[inline]
     pub fn load(self) -> LoadedTrapStack {
-        let mut sscratch = Self::locate_ptr(unsafe { self.0.as_ref().range.end });
+        let mut sscratch = self.0.as_ptr() as usize;
         forget(self);
         unsafe { asm!("csrrw {0}, sscratch, {0}", inlateout(reg) sscratch) };
         LoadedTrapStack(sscratch)
-    }
-
-    /// 在内存块上定位一个处理器上下文。
-    #[inline]
-    fn locate_ptr(top: usize) -> usize {
-        const LAYOUT: Layout = Layout::new::<TrapHandler>();
-        (top - LAYOUT.size()) & !(LAYOUT.align() - 1)
     }
 }
 
@@ -69,7 +63,7 @@ impl Drop for FreeTrapStack {
         unsafe {
             let handler = self.0.as_ref();
             (handler.drop)(core::slice::from_raw_parts_mut(
-                handler.range.start as *mut u8,
+                handler.range.start as _,
                 handler.range.len(),
             ));
         }
