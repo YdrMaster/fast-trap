@@ -3,6 +3,10 @@
 #![feature(naked_functions, asm_const)]
 #![deny(warnings)]
 
+use core::mem::forget;
+use fast_trap::{FastContext, FastResult, FreeTrapStack};
+use sbi_rt::*;
+
 #[naked]
 #[no_mangle]
 #[link_section = ".text.entry"]
@@ -22,19 +26,45 @@ unsafe extern "C" fn _start() -> ! {
     )
 }
 
+#[repr(C, align(4096))]
+struct Stack([u8; 4096]);
+
+static mut ROOT_STACK: Stack = Stack([0; 4096]);
+
 extern "C" fn rust_main() -> ! {
-    use sbi_rt::*;
     for c in b"Hello, world!" {
         #[allow(deprecated)]
         legacy::console_putchar(*c as _);
     }
+    forget(
+        FreeTrapStack::new(unsafe { &mut ROOT_STACK.0 }, fast_handler, |_| {})
+            .unwrap()
+            .load(),
+    );
     system_reset(Shutdown, NoReason);
     unreachable!()
 }
 
+extern "C" fn fast_handler(
+    mut ctx: FastContext,
+    a1: usize,
+    a2: usize,
+    a3: usize,
+    a4: usize,
+    a5: usize,
+    a6: usize,
+    a7: usize,
+) -> FastResult {
+    for c in b"Hello, world!\n" {
+        #[allow(deprecated)]
+        legacy::console_putchar(*c as _);
+    }
+    ctx.save_args(a1, a2, a3, a4, a5, a6, a7);
+    ctx.restore()
+}
+
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
-    use sbi_rt::*;
     system_reset(Shutdown, SystemFailure);
     loop {}
 }

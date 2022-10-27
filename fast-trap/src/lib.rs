@@ -25,6 +25,7 @@ pub struct FreeTrapStack(NonNull<TrapHandler>);
 pub struct LoadedTrapStack(usize);
 
 /// 构造陷入栈失败。
+#[derive(Debug)]
 pub struct IllegalStack;
 
 /// 丢弃陷入栈。
