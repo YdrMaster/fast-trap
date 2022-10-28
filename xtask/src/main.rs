@@ -4,7 +4,10 @@ extern crate clap;
 use clap::Parser;
 use once_cell::sync::Lazy;
 use os_xtask_utils::{BinUtil, Cargo, CommandExt, Qemu};
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 static PROJECT: Lazy<&'static Path> =
     Lazy::new(|| Path::new(std::env!("CARGO_MANIFEST_DIR")).parent().unwrap());
@@ -20,7 +23,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Make(BuildArgs),
-    Asm,
+    Asm(AsmArgs),
     Qemu(QemuArgs),
 }
 
@@ -30,7 +33,7 @@ fn main() {
         Make(args) => {
             args.make();
         }
-        Asm => todo!(),
+        Asm(args) => args.dump(),
         Qemu(args) => args.run(),
     }
 }
@@ -64,6 +67,24 @@ impl BuildArgs {
             .join(target)
             .join(if self.debug { "debug" } else { "release" })
             .join(package)
+    }
+}
+
+#[derive(Args)]
+struct AsmArgs {
+    #[clap(flatten)]
+    build: BuildArgs,
+    /// Output file.
+    #[clap(short, long)]
+    output: Option<String>,
+}
+
+impl AsmArgs {
+    fn dump(self) {
+        let elf = self.build.make();
+        let out = PROJECT.join(self.output.unwrap_or("test-app.asm".into()));
+        println!("Asm file dumps to '{}'.", out.display());
+        fs::write(out, BinUtil::objdump().arg(elf).arg("-d").output().stdout).unwrap();
     }
 }
 

@@ -4,8 +4,9 @@
 #![deny(warnings)]
 
 use console::log;
-use core::mem::forget;
-use fast_trap::{FastContext, FastResult, FreeTrapStack, TrapStackBlock};
+use core::{arch::asm, mem::forget};
+use fast_trap::{trap_entry, FastContext, FastResult, FreeTrapStack, TrapStackBlock};
+use riscv::register::*;
 use sbi_rt::*;
 
 #[naked]
@@ -17,12 +18,15 @@ unsafe extern "C" fn _start() -> ! {
     #[link_section = ".bss.uninit"]
     static mut STACK: [u8; STACK_SIZE] = [0u8; STACK_SIZE];
 
-    core::arch::asm!(
-        "la sp, {stack} + {stack_size}",
-        "j  {main}",
+    asm!(
+        "   la   sp, {stack} + {stack_size}
+            call {main}
+            j    {trap}
+        ",
         stack_size = const STACK_SIZE,
         stack      =   sym STACK,
         main       =   sym rust_main,
+        trap       =   sym trap_entry,
         options(noreturn),
     )
 }
@@ -48,21 +52,24 @@ impl TrapStackBlock for &'static mut Stack {}
 
 static mut ROOT_STACK: Stack = Stack([0; 4096]);
 
-extern "C" fn rust_main() -> ! {
+extern "C" fn rust_main() {
     console::init_console(&Console);
     console::set_log_level(option_env!("LOG"));
     console::test_log();
+    sscratch::write(0x5050);
     let _ = FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler).unwrap();
+    assert_eq!(0x5050, sscratch::read());
     let _ = FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler)
         .unwrap()
         .load();
+    assert_eq!(0x5050, sscratch::read());
     forget(
         FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler)
             .unwrap()
             .load(),
     );
-    system_reset(Shutdown, NoReason);
-    unreachable!()
+    assert_ne!(0x5050, sscratch::read());
+    log::debug!("sscratch: {:#x}", sscratch::read());
 }
 
 extern "C" fn fast_handler(

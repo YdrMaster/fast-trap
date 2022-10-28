@@ -1,7 +1,10 @@
 **/.*/*
 !**/.cargo/*
 !/.github/*
+!/.vscode/launch.json
 !/.vscode/settings.json
 
 /target
 /Cargo.lock
+*.asm
+*.bin

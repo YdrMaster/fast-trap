@@ -8,5 +8,8 @@ authors = ["YdrMaster <ydrml@hotmail.com>"]
 
 [dependencies]
 sbi-rt = { version = "0.0.2", features = ["legacy"] }
-fast-trap = { path = "../fast-trap" }
+riscv = "0.9.0"
+
 console = { git = "https://github.com/YdrMaster/rCore-Tutorial-in-single-workspace" }
+
+fast-trap = { path = "../fast-trap" }
