@@ -15,8 +15,11 @@ use core::{
     arch::asm,
     marker::PhantomPinned,
     mem::{align_of, forget},
+    ops::Range,
     ptr::{drop_in_place, NonNull},
 };
+
+const TARGET: &str = "fast-trap";
 
 /// 游离的陷入栈。
 pub struct FreeTrapStack(NonNull<TrapHandler>);
@@ -41,9 +44,10 @@ impl FreeTrapStack {
         let ptr = (top - LAYOUT.size()) & !(LAYOUT.align() - 1);
         if ptr >= bottom {
             let handler = unsafe { &mut *(ptr as *mut TrapHandler) };
-            handler.block = NonNull::from(&block);
             handler.fast_handler = fast_handler;
+            handler.block = NonNull::from(&block);
             forget(block);
+            log::trace!(target: TARGET, "new TrapStack({:?})", range);
             Ok(Self(unsafe { NonNull::new_unchecked(handler) }))
         } else {
             Err(IllegalStack)
@@ -53,6 +57,7 @@ impl FreeTrapStack {
     /// 将这个陷入栈加载为预备陷入栈。
     #[inline]
     pub fn load(self) -> LoadedTrapStack {
+        log::trace!("load TrapStack({:#x?})", unsafe { self.0.as_ref().range() });
         let mut sscratch = self.0.as_ptr() as usize;
         forget(self);
         unsafe { asm!("csrrw {0}, sscratch, {0}", inlateout(reg) sscratch) };
@@ -63,6 +68,9 @@ impl FreeTrapStack {
 impl Drop for FreeTrapStack {
     #[inline]
     fn drop(&mut self) {
+        log::trace!("delete TrapStack({:#x?})", unsafe {
+            self.0.as_ref().range()
+        });
         unsafe { drop_in_place(self.0.as_ref().block.as_ptr()) }
     }
 }
@@ -77,20 +85,31 @@ impl LoadedTrapStack {
     /// 卸载陷入栈。
     #[inline]
     pub fn unload(self) -> FreeTrapStack {
+        unsafe { self.unload_unchecked() }
+    }
+
+    /// 卸载但不消费所有权。
+    ///
+    /// # Safety
+    ///
+    /// 间接复制了所有权。用于 `Drop`。
+    #[inline]
+    unsafe fn unload_unchecked(&self) -> FreeTrapStack {
         let mut sscratch = self.0;
         forget(self);
         unsafe { asm!("csrrw {0}, sscratch, {0}", inlateout(reg) sscratch) };
-        FreeTrapStack(unsafe { NonNull::new_unchecked(sscratch as _) })
+        let handler = unsafe { NonNull::<TrapHandler>::new_unchecked(sscratch as _) };
+        log::trace!("unload TrapStack({:#x?})", unsafe {
+            handler.as_ref().range()
+        });
+        FreeTrapStack(handler)
     }
 }
 
 impl Drop for LoadedTrapStack {
     #[inline]
     fn drop(&mut self) {
-        unsafe { asm!("csrrw {0}, sscratch, {0}", inlateout(reg) self.0) };
-        drop(FreeTrapStack(unsafe {
-            NonNull::new_unchecked(self.0 as _)
-        }))
+        drop(unsafe { self.unload_unchecked() })
     }
 }
 
@@ -129,6 +148,13 @@ struct TrapHandler {
 }
 
 impl TrapHandler {
+    /// 内存块地址范围。
+    #[inline]
+    fn range(&self) -> Range<usize> {
+        let block = unsafe { self.block.as_ref().as_ref().as_ptr_range() };
+        block.start as _..block.end as _
+    }
+
     /// 如果从快速路径向完整路径转移，可以把一个对象放在栈底。
     /// 用这个方法找到栈底的一个对齐的位置。
     #[inline]

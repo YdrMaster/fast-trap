@@ -3,6 +3,7 @@
 #![feature(naked_functions, asm_const)]
 #![deny(warnings)]
 
+use console::log;
 use core::mem::forget;
 use fast_trap::{FastContext, FastResult, FreeTrapStack, TrapStackBlock};
 use sbi_rt::*;
@@ -48,10 +49,13 @@ impl TrapStackBlock for &'static mut Stack {}
 static mut ROOT_STACK: Stack = Stack([0; 4096]);
 
 extern "C" fn rust_main() -> ! {
-    for c in b"Hello, world!" {
-        #[allow(deprecated)]
-        legacy::console_putchar(*c as _);
-    }
+    console::init_console(&Console);
+    console::set_log_level(option_env!("LOG"));
+    console::test_log();
+    let _ = FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler).unwrap();
+    let _ = FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler)
+        .unwrap()
+        .load();
     forget(
         FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler)
             .unwrap()
@@ -80,7 +84,18 @@ extern "C" fn fast_handler(
 }
 
 #[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    log::error!("{info}");
     system_reset(Shutdown, SystemFailure);
     loop {}
+}
+
+pub struct Console;
+
+impl console::Console for Console {
+    #[inline]
+    fn put_char(&self, c: u8) {
+        #[allow(deprecated)]
+        sbi_rt::legacy::console_putchar(c as _);
+    }
 }
