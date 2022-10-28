@@ -13,9 +13,9 @@ pub use fast::*;
 use core::{
     alloc::Layout,
     arch::asm,
+    marker::PhantomPinned,
     mem::{align_of, forget},
-    ops::Range,
-    ptr::NonNull,
+    ptr::{drop_in_place, NonNull},
 };
 
 /// 游离的陷入栈。
@@ -28,26 +28,22 @@ pub struct LoadedTrapStack(usize);
 #[derive(Debug)]
 pub struct IllegalStack;
 
-/// 丢弃陷入栈。
-type TrapStackDropper = unsafe fn(&'static mut [u8]);
-
 impl FreeTrapStack {
     /// 在内存块上构造游离的陷入栈。
     pub fn new(
-        block: &'static mut [u8],
+        block: impl TrapStackBlock,
         fast_handler: FastHandler,
-        dropper: TrapStackDropper,
     ) -> Result<Self, IllegalStack> {
         const LAYOUT: Layout = Layout::new::<TrapHandler>();
-        let range = block.as_ptr_range();
+        let range = block.as_ref().as_ptr_range();
         let bottom = range.start as usize;
         let top = range.end as usize;
         let ptr = (top - LAYOUT.size()) & !(LAYOUT.align() - 1);
         if ptr >= bottom {
             let handler = unsafe { &mut *(ptr as *mut TrapHandler) };
-            handler.range = bottom..top;
+            handler.block = NonNull::from(&block);
             handler.fast_handler = fast_handler;
-            handler.drop = dropper;
+            forget(block);
             Ok(Self(unsafe { NonNull::new_unchecked(handler) }))
         } else {
             Err(IllegalStack)
@@ -67,13 +63,7 @@ impl FreeTrapStack {
 impl Drop for FreeTrapStack {
     #[inline]
     fn drop(&mut self) {
-        unsafe {
-            let handler = self.0.as_ref();
-            (handler.drop)(core::slice::from_raw_parts_mut(
-                handler.range.start as _,
-                handler.range.len(),
-            ));
-        }
+        unsafe { drop_in_place(self.0.as_ref().block.as_ptr()) }
     }
 }
 
@@ -104,9 +94,16 @@ impl Drop for LoadedTrapStack {
     }
 }
 
+/// 陷入栈内存块。
+///
+/// # TODO
+///
+/// 需要给 `Vec`、`Box<[u8]>` 之类的东西实现。
+pub trait TrapStackBlock: 'static + AsRef<[u8]> + AsMut<[u8]> {}
+
 /// 陷入处理器上下文。
 #[repr(C)]
-pub struct TrapHandler {
+struct TrapHandler {
     /// 指向一个陷入上下文的指针。
     ///
     /// - 发生陷入时，将寄存器保存到此对象。
@@ -121,18 +118,22 @@ pub struct TrapHandler {
     /// - 在快速路径开始时暂存 a0。
     /// - 在快速路径结束时保存完整路径函数。
     scratch: usize,
-    /// 地址范围。
-    range: Range<usize>,
-    /// 析构函数。
-    drop: TrapStackDropper,
+    /// 上下文所在的内存块。
+    ///
+    /// 保存它以提供内存块的范围，同时用于控制内存块的生命周期。
+    block: NonNull<dyn TrapStackBlock>,
+    /// 禁止移动标记。
+    ///
+    /// `TrapHandler` 是放在其内部定义的 `block` 块里的，这是一种自引用结构，不能移动。
+    pinned: PhantomPinned,
 }
 
 impl TrapHandler {
     /// 如果从快速路径向完整路径转移，可以把一个对象放在栈底。
     /// 用这个方法找到栈底的一个对齐的位置。
     #[inline]
-    fn locate_fast_mail<T>(&self) -> *mut T {
-        let bottom = self.range.start as *mut u8;
+    fn locate_fast_mail<T>(&mut self) -> *mut T {
+        let bottom = unsafe { self.block.as_mut() }.as_mut().as_mut_ptr();
         let offset = bottom.align_offset(align_of::<T>());
         unsafe { &mut *bottom.add(offset).cast() }
     }

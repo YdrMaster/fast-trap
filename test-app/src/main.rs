@@ -4,7 +4,7 @@
 #![deny(warnings)]
 
 use core::mem::forget;
-use fast_trap::{FastContext, FastResult, FreeTrapStack};
+use fast_trap::{FastContext, FastResult, FreeTrapStack, TrapStackBlock};
 use sbi_rt::*;
 
 #[naked]
@@ -29,6 +29,22 @@ unsafe extern "C" fn _start() -> ! {
 #[repr(C, align(4096))]
 struct Stack([u8; 4096]);
 
+impl AsRef<[u8]> for Stack {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl AsMut<[u8]> for Stack {
+    #[inline]
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+}
+
+impl TrapStackBlock for &'static mut Stack {}
+
 static mut ROOT_STACK: Stack = Stack([0; 4096]);
 
 extern "C" fn rust_main() -> ! {
@@ -37,7 +53,7 @@ extern "C" fn rust_main() -> ! {
         legacy::console_putchar(*c as _);
     }
     forget(
-        FreeTrapStack::new(unsafe { &mut ROOT_STACK.0 }, fast_handler, |_| {})
+        FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler)
             .unwrap()
             .load(),
     );

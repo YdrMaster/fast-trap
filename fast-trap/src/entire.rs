@@ -20,8 +20,8 @@ pub struct EntireContextSeparated(&'static mut TrapHandler);
 impl<T: 'static> EntireContext<T> {
     /// 分离完整路径上下文和快速路径消息。
     #[inline]
-    pub fn split(self) -> (EntireContextSeparated, FastMail<T>) {
-        let mail = unsafe { &mut *self.0.as_ref().locate_fast_mail() };
+    pub fn split(mut self) -> (EntireContextSeparated, FastMail<T>) {
+        let mail = unsafe { &mut *self.0.as_mut().locate_fast_mail() };
         let mut handler = self.0;
         forget(self);
         (
@@ -35,7 +35,7 @@ impl<T: 'static> EntireContext<T> {
 impl<T: 'static> Drop for EntireContext<T> {
     #[inline]
     fn drop(&mut self) {
-        unsafe { drop_in_place(self.0.as_ref().locate_fast_mail::<T>()) }
+        unsafe { drop_in_place(self.0.as_mut().locate_fast_mail::<T>()) }
     }
 }
 
