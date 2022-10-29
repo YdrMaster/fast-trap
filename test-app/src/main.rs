@@ -21,8 +21,10 @@ unsafe extern "C" fn _start() -> ! {
     asm!(
         "   la   sp, {stack} + {stack_size}
             call {main}
-         1: call {trap}
-            j    1b
+         2: la   ra, 1f
+            csrw sepc, ra
+            j    {trap}
+         1: j    2b
         ",
         stack_size = const STACK_SIZE,
         stack      =   sym STACK,
@@ -87,6 +89,7 @@ extern "C" fn fast_handler(
 ) -> FastResult {
     log::debug!("fast trap!");
     ctx.save_args(a1, a2, a3, a4, a5, a6, a7);
+    unsafe { sstatus::set_spp(sstatus::SPP::Supervisor) };
     ctx.restore()
 }
 
