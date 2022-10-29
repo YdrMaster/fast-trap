@@ -4,8 +4,8 @@
 #![deny(warnings)]
 
 use console::log;
-use core::{arch::asm, mem::forget};
-use fast_trap::{trap_entry, FastContext, FastResult, FreeTrapStack, TrapStackBlock};
+use core::{arch::asm, mem::forget, ptr::NonNull};
+use fast_trap::{trap_entry, FastContext, FastResult, FlowContext, FreeTrapStack, TrapStackBlock};
 use riscv::register::*;
 use sbi_rt::*;
 
@@ -21,7 +21,8 @@ unsafe extern "C" fn _start() -> ! {
     asm!(
         "   la   sp, {stack} + {stack_size}
             call {main}
-            j    {trap}
+         1: call {trap}
+            j    1b
         ",
         stack_size = const STACK_SIZE,
         stack      =   sym STACK,
@@ -51,20 +52,22 @@ impl AsMut<[u8]> for Stack {
 impl TrapStackBlock for &'static mut Stack {}
 
 static mut ROOT_STACK: Stack = Stack([0; 4096]);
+static mut ROOT_CONTEXT: FlowContext = FlowContext::ZERO;
 
 extern "C" fn rust_main() {
     console::init_console(&Console);
     console::set_log_level(option_env!("LOG"));
     console::test_log();
     sscratch::write(0x5050);
-    let _ = FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler).unwrap();
+    let context_ptr = unsafe { NonNull::new_unchecked(&mut ROOT_CONTEXT) };
+    let _ = FreeTrapStack::new(unsafe { &mut ROOT_STACK }, context_ptr, fast_handler).unwrap();
     assert_eq!(0x5050, sscratch::read());
-    let _ = FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler)
+    let _ = FreeTrapStack::new(unsafe { &mut ROOT_STACK }, context_ptr, fast_handler)
         .unwrap()
         .load();
     assert_eq!(0x5050, sscratch::read());
     forget(
-        FreeTrapStack::new(unsafe { &mut ROOT_STACK }, fast_handler)
+        FreeTrapStack::new(unsafe { &mut ROOT_STACK }, context_ptr, fast_handler)
             .unwrap()
             .load(),
     );
@@ -82,10 +85,7 @@ extern "C" fn fast_handler(
     a6: usize,
     a7: usize,
 ) -> FastResult {
-    for c in b"Hello, world!\n" {
-        #[allow(deprecated)]
-        legacy::console_putchar(*c as _);
-    }
+    log::debug!("fast trap!");
     ctx.save_args(a1, a2, a3, a4, a5, a6, a7);
     ctx.restore()
 }

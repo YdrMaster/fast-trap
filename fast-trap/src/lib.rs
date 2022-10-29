@@ -35,6 +35,7 @@ impl FreeTrapStack {
     /// 在内存块上构造游离的陷入栈。
     pub fn new(
         block: impl TrapStackBlock,
+        context_ptr: NonNull<FlowContext>,
         fast_handler: FastHandler,
     ) -> Result<Self, IllegalStack> {
         const LAYOUT: Layout = Layout::new::<TrapHandler>();
@@ -44,6 +45,7 @@ impl FreeTrapStack {
         let ptr = (top - LAYOUT.size()) & !(LAYOUT.align() - 1);
         if ptr >= bottom {
             let handler = unsafe { &mut *(ptr as *mut TrapHandler) };
+            handler.context = ContextPtr(context_ptr);
             handler.fast_handler = fast_handler;
             handler.block = NonNull::from(&block);
             forget(block);
@@ -208,6 +210,20 @@ pub struct FlowContext {
     pub tp: usize,      // 29..
     pub sp: usize,      // 30..
     pub pc: usize,      // 31..
+}
+
+impl FlowContext {
+    /// 零初始化。
+    pub const ZERO: Self = Self {
+        ra: 0,
+        t: [0; 7],
+        a: [0; 8],
+        s: [0; 12],
+        gp: 0,
+        tp: 0,
+        sp: 0,
+        pc: 0,
+    };
 }
 
 /// 设置全局陷入入口。
