@@ -1,4 +1,6 @@
-﻿use crate::{ContextPtr, EntireHandler, TrapHandler};
+﻿use core::ptr::NonNull;
+
+use crate::{EntireHandler, FlowContext, TrapHandler};
 
 /// 快速路径函数。
 pub type FastHandler = extern "C" fn(
@@ -31,19 +33,19 @@ impl FastContext {
     /// 修改陷入上下文的参数寄存器组。
     #[inline]
     pub fn write_a(&mut self, i: usize, val: usize) {
-        unsafe { self.0.context.0.as_mut() }.a[i] = val;
+        unsafe { self.0.context.as_mut() }.a[i] = val;
     }
 
     /// 访问陷入上下文的临时寄存器组。
     #[inline]
     pub fn t(&self, i: usize) -> usize {
-        unsafe { self.0.context.0.as_ref() }.t[i]
+        unsafe { self.0.context.as_ref() }.t[i]
     }
 
     /// 访问陷入上下文的临时寄存器组。
     #[inline]
     pub fn t_mut(&mut self, i: usize) -> &mut usize {
-        &mut unsafe { self.0.context.0.as_mut() }.t[i]
+        &mut unsafe { self.0.context.as_mut() }.t[i]
     }
 
     /// 将所有参数寄存器保存到陷入上下文。
@@ -58,7 +60,7 @@ impl FastContext {
         a6: usize,
         a7: usize,
     ) {
-        let ctx = unsafe { self.0.context.0.as_mut() };
+        let ctx = unsafe { self.0.context.as_mut() };
         ctx.a[0] = self.a0();
         ctx.a[1] = a1;
         ctx.a[2] = a2;
@@ -71,8 +73,8 @@ impl FastContext {
 
     /// 丢弃当前上下文，并启动一个带有 `argc` 个参数的新上下文。
     #[inline]
-    pub fn call(self, new: ContextPtr, argc: usize) -> FastResult {
-        unsafe { new.load_regs() };
+    pub fn call(self, new: NonNull<FlowContext>, argc: usize) -> FastResult {
+        unsafe { new.as_ref().load_others() };
         self.0.context = new;
         if argc <= 2 {
             FastResult::FastCall
@@ -91,8 +93,8 @@ impl FastContext {
 
     /// 丢弃当前上下文，并直接切换到另一个上下文。
     #[inline]
-    pub fn switch_to(self, others: ContextPtr) -> FastResult {
-        unsafe { others.load_regs() };
+    pub fn switch_to(self, others: NonNull<FlowContext>) -> FastResult {
+        unsafe { others.as_ref().load_others() };
         self.0.context = others;
         FastResult::Switch
     }

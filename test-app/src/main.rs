@@ -6,8 +6,8 @@
 use console::log;
 use core::{arch::asm, ptr::NonNull};
 use fast_trap::{
-    load_direct_trap_entry, trap_entry, FastContext, FastResult, FlowContext, FreeTrapStack,
-    TrapStackBlock,
+    load_direct_trap_entry, soft_trap, trap_entry, FastContext, FastResult, FlowContext,
+    FreeTrapStack, TrapStackBlock,
 };
 use riscv::register::*;
 use sbi_rt::*;
@@ -84,27 +84,19 @@ extern "C" fn rust_main() {
     assert_ne!(0x5050, sscratch::read());
     log::debug!("sscratch: {:#x}", sscratch::read());
 
-    // 测试直接调用
-    unsafe {
-        asm!(
-            "   la   {0}, 1f
-                csrw sepc, {0}
-                li   {0}, 31
-                csrw scause, {0}
-                j    {trap}
-             1:
-            ",
-            out(reg) _,
-            trap = sym trap_entry,
-        );
-    }
+    // 测试模拟一个陷入
+    // 不需要设置 `stvec`，直接跳转
+    unsafe { soft_trap(24) };
 
-    // 测试内核异常
+    // 测试发生一个陷入
+    // 设置 `stvec` 然后执行一个非法指令以触发陷入
     unsafe {
         load_direct_trap_entry();
         asm!("unimp");
     }
 
+    log::info!("test passed");
+    system_reset(Shutdown, NoReason);
     loop {}
 }
 

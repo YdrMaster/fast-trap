@@ -102,11 +102,13 @@ trait TrapStackBlock: 'static + AsRef<[u8]> + AsMut<[u8]> {}
 ```rust
 fn new(
     block: impl TrapStackBlock,
+    context_ptr: NonNull<FlowContext>,
     fast_handler: FastHandler,
 ) -> Result<Self, IllegalStack>
 ```
 
 - `block` 是用作栈的内存块；
+- `context_ptr` 是用于保存控制流上下文（通用寄存器）的对象指针，用户需要自己控制其生命周期；
 - `fast_handler` 是快速路径函数，一个 `extern "C"` 的函数指针，将由汇编调用；
 
 这个方法将先检查内存块是否够大，然后在其上初始化陷入处理上下文。如果成功，将返回一个 `FreeTrapStack` 对象。这个类型表示一个游离的陷入栈，还没有加载到突发寄存器，因此只是个内存块，不会产生作用。如果这个对象被释放，它所在的内存块递归地释放。
