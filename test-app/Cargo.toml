@@ -12,4 +12,4 @@ riscv = "0.9.0"
 
 console = { git = "https://github.com/YdrMaster/rCore-Tutorial-in-single-workspace" }
 
-fast-trap = { path = "../fast-trap" }
+fast-trap = { path = "../fast-trap", features = ["riscv_s"] }

@@ -1,86 +1,4 @@
-﻿use core::arch::asm;
-
-/// 交换突发寄存器。
-#[inline]
-pub(crate) fn exchange_scratch(mut val: usize) -> usize {
-    unsafe { asm!("csrrw {0}, sscratch, {0}", inlateout(reg) val) };
-    val
-}
-
-/// 陷入上下文。
-///
-/// 保存了陷入时的寄存器状态。包括所有通用寄存器和 `pc`。
-#[repr(C)]
-#[allow(missing_docs)]
-pub struct FlowContext {
-    pub ra: usize,      // 0..
-    pub t: [usize; 7],  // 1..
-    pub a: [usize; 8],  // 8..
-    pub s: [usize; 12], // 16..
-    pub gp: usize,      // 28..
-    pub tp: usize,      // 29..
-    pub sp: usize,      // 30..
-    pub pc: usize,      // 31..
-}
-
-impl FlowContext {
-    /// 零初始化。
-    pub const ZERO: Self = Self {
-        ra: 0,
-        t: [0; 7],
-        a: [0; 8],
-        s: [0; 12],
-        gp: 0,
-        tp: 0,
-        sp: 0,
-        pc: 0,
-    };
-
-    /// 从上下文向硬件加载非调用规范约定的寄存器。
-    #[inline]
-    pub(crate) unsafe fn load_others(&self) {
-        asm!(
-            "   mv         gp, {gp}
-                mv         tp, {tp}
-                csrw sscratch, {sp}
-                csrw     sepc, {pc}
-            ",
-            gp = in(reg) self.gp,
-            tp = in(reg) self.tp,
-            sp = in(reg) self.sp,
-            pc = in(reg) self.pc,
-        );
-    }
-}
-
-/// 模拟一个 `cause` 类的陷入。
-///
-/// # Safety
-///
-/// 如同发生一个陷入。
-pub unsafe fn soft_trap(cause: usize) {
-    asm!(
-        "   la   {0},    1f
-            csrw sepc,   {0}
-            csrw scause, {cause}
-            j    {trap}
-         1:
-        ",
-        out(reg) _,
-        cause = in(reg) cause,
-        trap  = sym trap_entry,
-    );
-}
-
-/// 设置全局陷入入口。
-///
-/// # Safety
-///
-/// 这个函数操作硬件寄存器，寄存器里原本的值将丢弃。
-#[inline]
-pub unsafe fn load_direct_trap_entry() {
-    asm!("csrw stvec, {0}", in(reg) trap_entry, options(nomem))
-}
+﻿use super::{exchange, r#return};
 
 /// 陷入处理例程。
 ///
@@ -89,10 +7,10 @@ pub unsafe fn load_direct_trap_entry() {
 /// 不要直接调用这个函数。暴露它仅仅是为了提供其入口的符号链接。
 #[naked]
 pub unsafe extern "C" fn trap_entry() {
-    asm!(
+    core::arch::asm!(
         ".align 2",
         // 换栈
-        "   csrrw sp, sscratch, sp",
+        exchange!(),
         // 加载上下文指针
         "   sd    a0,  2*8(sp)
             ld    a0,  0*8(sp)
@@ -210,9 +128,9 @@ pub unsafe extern "C" fn trap_entry() {
         // 设置少量参数寄存器
         "0: ld    a0,  8*8(a1)
             ld    a1,  9*8(a1)
-            csrrw sp, sscratch, sp
-            sret
         ",
+        exchange!(),
+        r#return!(),
         options(noreturn),
     )
 }

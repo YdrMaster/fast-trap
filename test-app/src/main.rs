@@ -6,8 +6,8 @@
 use console::log;
 use core::{arch::asm, ptr::NonNull};
 use fast_trap::{
-    load_direct_trap_entry, soft_trap, trap_entry, FastContext, FastResult, FlowContext,
-    FreeTrapStack, TrapStackBlock,
+    load_direct_trap_entry, soft_trap, FastContext, FastResult, FlowContext, FreeTrapStack,
+    TrapStackBlock,
 };
 use riscv::register::*;
 use sbi_rt::*;
@@ -22,17 +22,12 @@ unsafe extern "C" fn _start() -> ! {
     static mut STACK: [u8; STACK_SIZE] = [0u8; STACK_SIZE];
 
     asm!(
-        "   la   sp, {stack} + {stack_size}
-            call {main}
-         2: la   ra, 1f
-            csrw sepc, ra
-            j    {trap}
-         1: j    2b
+        "   la sp, {stack} + {stack_size}
+            j  {main}
         ",
         stack_size = const STACK_SIZE,
         stack      =   sym STACK,
         main       =   sym rust_main,
-        trap       =   sym trap_entry,
         options(noreturn),
     )
 }
