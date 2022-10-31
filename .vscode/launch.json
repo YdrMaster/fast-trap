@@ -8,7 +8,7 @@
             "type": "cppdbg",
             "request": "launch",
             "name": "GDB",
-            "program": "${workspaceRoot}/target/riscv64imac-unknown-none-elf/debug/test-app",
+            "program": "${workspaceRoot}/target/riscv64imac-unknown-none-elf/release/test-app",
             "miDebuggerServerAddress": "localhost:12345",
             "miDebuggerPath": "riscv64-unknown-elf-gdb",
             "cwd": "${workspaceRoot}/test-app",

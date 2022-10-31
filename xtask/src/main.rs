@@ -40,6 +40,9 @@ fn main() {
 
 #[derive(Args, Default)]
 struct BuildArgs {
+    /// Which mode, m or s
+    #[clap(long)]
+    mode: Option<char>,
     /// log level
     #[clap(long)]
     log: Option<String>,
@@ -54,6 +57,14 @@ impl BuildArgs {
         let target = "riscv64imac-unknown-none-elf";
         Cargo::build()
             .package(package)
+            .features(
+                true,
+                match self.mode {
+                    Some('s') | None => ["s-mode"],
+                    Some('m') => ["m-mode"],
+                    Some(_) => panic!(),
+                },
+            )
             .optional(&self.log, |cargo, log| {
                 cargo.env("LOG", log);
             })
@@ -100,10 +111,15 @@ struct QemuArgs {
 impl QemuArgs {
     fn run(self) {
         let elf = self.build.make();
+        let mode = if self.build.mode == Some('s') {
+            "-kernel"
+        } else {
+            "-bios"
+        };
         Qemu::system("riscv64")
             .args(&["-machine", "virt"])
             .arg("-nographic")
-            .arg("-kernel")
+            .arg(mode)
             .arg(objcopy(elf, true))
             .args(&["-serial", "mon:stdio"])
             .optional(&self.gdb, |qemu, gdb| {

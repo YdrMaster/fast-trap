@@ -1,6 +1,20 @@
 ﻿use super::{trap_entry, FlowContext};
 use core::arch::asm;
 
+macro_rules! exchange {
+    () => {
+        "csrrw sp, mscratch, sp"
+    };
+}
+
+macro_rules! r#return {
+    () => {
+        "mret"
+    };
+}
+
+pub(super) use {exchange, r#return};
+
 impl FlowContext {
     /// 从上下文向硬件加载非调用规范约定的寄存器。
     #[inline]

@@ -1,32 +1,43 @@
 fn main() {
     use std::{env, fs, path::PathBuf};
 
-    let ld = &PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("linker.ld");
-    fs::write(ld, LINKER).unwrap();
+    #[cfg(feature = "m-mode")]
+    const BASE_ADDRESS: u64 = 0x8000_0000;
+    #[cfg(feature = "s-mode")]
+    const BASE_ADDRESS: u64 = 0x8020_0000;
+
+    let ld = &PathBuf::from(env::var("OUT_DIR").unwrap()).join("linker.ld");
+    fs::write(
+        ld,
+        format!(
+            "\
+OUTPUT_ARCH(riscv)
+ENTRY(_start)
+SECTIONS {{
+    . = {BASE_ADDRESS};
+    .text : {{
+        *(.text.entry)
+        *(.text .text.*)
+    }}
+    .rodata : {{
+        *(.rodata .rodata.*)
+        *(.srodata .srodata.*)
+    }}
+    .data : {{
+        *(.data .data.*)
+        *(.sdata .sdata.*)
+    }}
+    .bss : ALIGN(8) {{
+        *(.bss.uninit)
+        sbss = .;
+        *(.bss .bss.*)
+        *(.sbss .sbss.*)
+        ebss = .;
+    }}
+}}"
+        ),
+    )
+    .unwrap();
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rustc-link-arg=-T{}", ld.display());
 }
-
-const LINKER: &[u8] = b"
-OUTPUT_ARCH(riscv)
-ENTRY(_start)
-SECTIONS {
-    . = 0x80200000;
-    .text : {
-        *(.text.entry)
-        *(.text .text.*)
-    }
-    .rodata : {
-        *(.rodata .rodata.*)
-        *(.srodata .srodata.*)
-    }
-    .data : {
-        *(.data .data.*)
-        *(.sdata .sdata.*)
-    }
-    .bss : {
-        *(.bss.uninit)
-        *(.bss .bss.*)
-        *(.sbss .sbss.*)
-    }
-}";
