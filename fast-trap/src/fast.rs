@@ -1,6 +1,5 @@
-﻿use core::ptr::NonNull;
-
-use crate::{EntireHandler, FlowContext, TrapHandler};
+﻿use crate::{EntireHandler, FlowContext, TrapHandler};
+use core::ptr::NonNull;
 
 /// 快速路径函数。
 pub type FastHandler = extern "C" fn(

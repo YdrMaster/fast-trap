@@ -1,4 +1,7 @@
-﻿/// 陷入上下文。
+﻿use crate::TrapHandler;
+use core::alloc::Layout;
+
+/// 陷入上下文。
 ///
 /// 保存了陷入时的寄存器状态。包括所有通用寄存器和 `pc`。
 #[repr(C)]
@@ -26,4 +29,23 @@ impl FlowContext {
         sp: 0,
         pc: 0,
     };
+}
+
+/// 把当前栈复用为陷入栈，预留 Handler 空间。
+///
+/// # Safety
+///
+/// 裸指针，直接移动 sp，只能在纯汇编环境调用。
+#[naked]
+pub unsafe extern "C" fn reuse_stack_for_trap() {
+    const LAYOUT: Layout = Layout::new::<TrapHandler>();
+    core::arch::asm!(
+        "   addi sp, sp, {size}
+            andi sp, sp, {mask}
+            ret
+        ",
+        size = const -(LAYOUT.size() as isize),
+        mask = const !(LAYOUT.align() - 1),
+        options(noreturn)
+    )
 }
