@@ -70,11 +70,16 @@ impl FastContext {
         ctx.a[7] = a7;
     }
 
-    /// 丢弃当前上下文，并启动一个带有 `argc` 个参数的新上下文。
+    /// 交换上下文指针。
     #[inline]
-    pub fn call(self, new: NonNull<FlowContext>, argc: usize) -> FastResult {
-        unsafe { new.as_ref().load_others() };
-        self.0.context = new;
+    pub fn swap_context(&mut self, new: NonNull<FlowContext>) -> NonNull<FlowContext> {
+        core::mem::replace(&mut self.0.context, new)
+    }
+
+    /// 启动一个带有 `argc` 个参数的新上下文。
+    #[inline]
+    pub fn call(self, argc: usize) -> FastResult {
+        unsafe { self.0.context.as_ref().load_others() };
         if argc <= 2 {
             FastResult::FastCall
         } else {
