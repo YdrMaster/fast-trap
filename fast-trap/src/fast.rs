@@ -29,45 +29,10 @@ impl FastContext {
         self.0.scratch
     }
 
-    /// 修改陷入上下文的参数寄存器组。
+    /// 获取控制流上下文。
     #[inline]
-    pub fn write_a(&mut self, i: usize, val: usize) {
-        unsafe { self.0.context.as_mut() }.a[i] = val;
-    }
-
-    /// 访问陷入上下文的临时寄存器组。
-    #[inline]
-    pub fn t(&self, i: usize) -> usize {
-        unsafe { self.0.context.as_ref() }.t[i]
-    }
-
-    /// 访问陷入上下文的临时寄存器组。
-    #[inline]
-    pub fn t_mut(&mut self, i: usize) -> &mut usize {
-        &mut unsafe { self.0.context.as_mut() }.t[i]
-    }
-
-    /// 将所有参数寄存器保存到陷入上下文。
-    #[inline]
-    pub extern "C" fn save_args(
-        &mut self,
-        a1: usize,
-        a2: usize,
-        a3: usize,
-        a4: usize,
-        a5: usize,
-        a6: usize,
-        a7: usize,
-    ) {
-        let ctx = unsafe { self.0.context.as_mut() };
-        ctx.a[0] = self.a0();
-        ctx.a[1] = a1;
-        ctx.a[2] = a2;
-        ctx.a[3] = a3;
-        ctx.a[4] = a4;
-        ctx.a[5] = a5;
-        ctx.a[6] = a6;
-        ctx.a[7] = a7;
+    pub fn regs(&mut self) -> &mut FlowContext {
+        unsafe { self.0.context.as_mut() }
     }
 
     /// 交换上下文指针。

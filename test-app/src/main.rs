@@ -140,7 +140,8 @@ extern "C" fn fast_handler(
             T::Exception(E::Unknown) => {
                 mepc::write(exception as _);
                 unsafe { mstatus::set_mpp(mstatus::MPP::Machine) };
-                ctx.save_args(a1, a2, a3, a4, a5, a6, a7);
+                let a0 = ctx.a0();
+                ctx.regs().a = [a0, a1, a2, a3, a4, a5, a6, a7];
                 ctx.restore()
             }
             T::Exception(_) | T::Interrupt(_) => unreachable!(),
@@ -159,7 +160,8 @@ extern "C" fn fast_handler(
             T::Exception(E::Unknown) => {
                 sepc::write(exception as _);
                 unsafe { sstatus::set_spp(sstatus::SPP::Supervisor) };
-                ctx.save_args(a1, a2, a3, a4, a5, a6, a7);
+                let a0 = ctx.a0();
+                ctx.regs().a = [a0, a1, a2, a3, a4, a5, a6, a7];
                 ctx.restore()
             }
             T::Exception(_) | T::Interrupt(_) => unreachable!(),
