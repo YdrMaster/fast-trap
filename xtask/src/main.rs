@@ -123,7 +123,7 @@ impl QemuArgs {
             .arg(objcopy(elf, true))
             .args(&["-serial", "mon:stdio"])
             .optional(&self.gdb, |qemu, gdb| {
-                qemu.args(&["-S", "-gdb", &format!("tcp::{gdb}")]);
+                qemu.args(["-S", "-gdb", &format!("tcp::{gdb}")]);
             })
             .invoke();
     }

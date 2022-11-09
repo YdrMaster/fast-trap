@@ -1,5 +1,5 @@
 ﻿use crate::{EntireHandler, FlowContext, TrapHandler};
-use core::ptr::NonNull;
+use core::{mem::MaybeUninit, ptr::NonNull};
 
 /// 快速路径函数。
 pub type FastHandler = extern "C" fn(
@@ -74,7 +74,7 @@ impl FastContext {
     #[inline]
     pub fn continue_with<T: 'static>(self, f: EntireHandler<T>, t: T) -> FastResult {
         // TODO 检查栈溢出
-        unsafe { *self.0.locate_fast_mail() = t };
+        unsafe { *self.0.locate_fast_mail() = MaybeUninit::new(t) };
         self.0.scratch = f as _;
         FastResult::Continue
     }

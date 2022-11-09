@@ -15,7 +15,7 @@ pub use hal::*;
 use core::{
     alloc::Layout,
     marker::PhantomPinned,
-    mem::{align_of, forget},
+    mem::{align_of, forget, MaybeUninit},
     ops::Range,
     ptr::{drop_in_place, NonNull},
 };
@@ -166,7 +166,7 @@ impl TrapHandler {
     /// 如果从快速路径向完整路径转移，可以把一个对象放在栈底。
     /// 用这个方法找到栈底的一个对齐的位置。
     #[inline]
-    fn locate_fast_mail<T>(&mut self) -> *mut T {
+    fn locate_fast_mail<T>(&mut self) -> *mut MaybeUninit<T> {
         let bottom = unsafe { self.block.as_mut() }.as_mut().as_mut_ptr();
         let offset = bottom.align_offset(align_of::<T>());
         unsafe { &mut *bottom.add(offset).cast() }
