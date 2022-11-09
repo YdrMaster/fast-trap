@@ -99,5 +99,5 @@ pub enum EntireResult {
     /// 调用新上下文，需要设置超过 2 个参数。
     Call = 1,
     /// 切换到另一个上下文或从完整路径恢复。
-    Restore = 4,
+    Restore = 3,
 }
