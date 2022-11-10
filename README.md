@@ -313,9 +313,16 @@ trap Lv.2                                                     (trap3)-->{o}  (tr
 
 ### 功能测试
 
-目前库通过 hal 模块，支持 RISC-V32/64 的 M/S 模式。并为 RISC-V64 提供了 2 种模式的功能测试。
+目前库通过 hal 模块，支持 RISC-V32/64 的 M/S 模式。
 
-使用 `cargo qemu --mode m` 或 `cargo qemu --mode s` 执行测试，正常情况下，应该输出：
+使用 `cargo qemu --arch <arch>` 执行测试，`arch` 可以是以下四者之一：
+
+- `rv32:m`
+- `rv32:s`
+- `rv64:m`
+- `rv64:s`
+
+正常情况下会打印出：
 
 ```bash
    ______                       __

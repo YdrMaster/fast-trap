@@ -2,9 +2,13 @@ fn main() {
     use std::{env, fs, path::PathBuf};
 
     #[cfg(feature = "m-mode")]
-    const BASE_ADDRESS: u64 = 0x8000_0000;
+    let base_address = 0x8000_0000usize;
     #[cfg(feature = "s-mode")]
-    const BASE_ADDRESS: u64 = 0x8020_0000;
+    let base_address = match env::var("CARGO_CFG_TARGET_POINTER_WIDTH").unwrap().as_str() {
+        "32" => 0x8040_0000usize,
+        "64" => 0x8020_0000usize,
+        _ => unreachable!(),
+    };
 
     let ld = &PathBuf::from(env::var("OUT_DIR").unwrap()).join("linker.ld");
     fs::write(
@@ -14,7 +18,7 @@ fn main() {
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 SECTIONS {{
-    . = {BASE_ADDRESS};
+    . = {base_address};
     .text : {{
         *(.text.entry)
         *(.text .text.*)
