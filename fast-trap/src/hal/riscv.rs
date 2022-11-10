@@ -45,7 +45,7 @@ pub unsafe extern "C" fn reuse_stack_for_trap() {
             ret
         ",
         size = const -(LAYOUT.size() as isize),
-        mask = const !(LAYOUT.align() - 1),
+        mask = const !(LAYOUT.align() as isize - 1) ,
         options(noreturn)
     )
 }

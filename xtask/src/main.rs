@@ -38,11 +38,35 @@ fn main() {
     }
 }
 
-#[derive(Args, Default)]
+#[derive(Clone, Copy, Debug)]
+enum Arch {
+    RISCV32(Mode),
+    RISCV64(Mode),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Mode {
+    Machine,
+    Supervisor,
+}
+
+impl From<&'_ str> for Arch {
+    #[inline]
+    fn from(value: &str) -> Self {
+        match value.to_lowercase().as_str() {
+            "rv32:m" => Arch::RISCV32(Mode::Machine),
+            "rv32:s" => Arch::RISCV32(Mode::Supervisor),
+            "rv64:m" => Arch::RISCV64(Mode::Machine),
+            "rv64:s" => Arch::RISCV64(Mode::Supervisor),
+            _ => panic!(),
+        }
+    }
+}
+
+#[derive(Args)]
 struct BuildArgs {
-    /// Which mode, m or s
-    #[clap(long)]
-    mode: char,
+    #[clap(short, long)]
+    arch: Arch,
     /// log level
     #[clap(long)]
     log: Option<String>,
@@ -54,17 +78,15 @@ struct BuildArgs {
 impl BuildArgs {
     fn make(&self) -> PathBuf {
         let package = "test-app";
-        let target = "riscv64imac-unknown-none-elf";
+        let (target, feature) = match self.arch {
+            Arch::RISCV32(Mode::Machine) => ("riscv32imac-unknown-none-elf", ["m-mode"]),
+            Arch::RISCV32(Mode::Supervisor) => ("riscv32imac-unknown-none-elf", ["s-mode"]),
+            Arch::RISCV64(Mode::Machine) => ("riscv64imac-unknown-none-elf", ["m-mode"]),
+            Arch::RISCV64(Mode::Supervisor) => ("riscv64imac-unknown-none-elf", ["s-mode"]),
+        };
         Cargo::build()
             .package(package)
-            .features(
-                true,
-                match self.mode {
-                    's' => ["s-mode"],
-                    'm' => ["m-mode"],
-                    _ => panic!("mode must be 'm' or 's'"),
-                },
-            )
+            .features(true, feature)
             .optional(&self.log, |cargo, log| {
                 cargo.env("LOG", log);
             })
@@ -111,12 +133,13 @@ struct QemuArgs {
 impl QemuArgs {
     fn run(self) {
         let elf = self.build.make();
-        let mode = match self.build.mode {
-            's' => "-kernel",
-            'm' => "-bios",
-            _ => panic!("mode must be 'm' or 's'"),
+        let (arch, mode) = match self.build.arch {
+            Arch::RISCV32(Mode::Machine) => ("riscv32", "-bios"),
+            Arch::RISCV32(Mode::Supervisor) => ("riscv32", "-kernel"),
+            Arch::RISCV64(Mode::Machine) => ("riscv64", "-bios"),
+            Arch::RISCV64(Mode::Supervisor) => ("riscv64", "-kernel"),
         };
-        Qemu::system("riscv64")
+        Qemu::system(arch)
             .args(&["-machine", "virt"])
             .arg("-nographic")
             .arg(mode)
