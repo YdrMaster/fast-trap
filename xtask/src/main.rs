@@ -42,7 +42,7 @@ fn main() {
 struct BuildArgs {
     /// Which mode, m or s
     #[clap(long)]
-    mode: Option<char>,
+    mode: char,
     /// log level
     #[clap(long)]
     log: Option<String>,
@@ -60,9 +60,9 @@ impl BuildArgs {
             .features(
                 true,
                 match self.mode {
-                    Some('s') | None => ["s-mode"],
-                    Some('m') => ["m-mode"],
-                    Some(_) => panic!(),
+                    's' => ["s-mode"],
+                    'm' => ["m-mode"],
+                    _ => panic!("mode must be 'm' or 's'"),
                 },
             )
             .optional(&self.log, |cargo, log| {
@@ -111,10 +111,10 @@ struct QemuArgs {
 impl QemuArgs {
     fn run(self) {
         let elf = self.build.make();
-        let mode = if self.build.mode == Some('s') {
-            "-kernel"
-        } else {
-            "-bios"
+        let mode = match self.build.mode {
+            's' => "-kernel",
+            'm' => "-bios",
+            _ => panic!("mode must be 'm' or 's'"),
         };
         Qemu::system("riscv64")
             .args(&["-machine", "virt"])
