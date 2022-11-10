@@ -350,6 +350,8 @@ trap Lv.2                                                     (trap3)-->{o}  (tr
 
 本项目现以 RISC-V64 M 模式用于 [rustsbi-qemu](https://github.com/YdrMaster/rustsbi-qemu) 和 [rustsbi-d1](https://github.com/rustsbi/rustsbi-d1)。这两个项目可以提供使用本库前后的性能对比。
 
+#### qemu
+
 对于 rustsbi-qemu 仓库，其 `main` 分支是使用 fast-trap 重构后的结果，`bench-slow-trap` 分支是重构前的。在这两个分支分别使用：
 
 ```bash
@@ -421,3 +423,21 @@ cargo qemu --kernel bench --smp 1
 | rustsbi (fast-trap) | 2324058      | 2490860 | 10141260 |  75.0%
 | rustsbi             | 3600115      | 3809638 | 12529395 | 100.0%
 | opensbi             | 5117689      | 5143339 | 27404345 | 188.9%
+
+#### d1
+
+在全志 d1 上，支持进行同样的测试。[rustsbi-d1](https://github.com/rustsbi/rustsbi-d1) 仓库有 3 个相关分支：
+
+1. `bench-slow-trap` 分支没有 fast-trap，并且也未采用中断向量表，因此代理软中断时也要完整的存取上下文。相比之下，rustsbi-qemu 早就采用了中断向量表，没法做这个测试了；
+2. `bench-vectored-trap` 分支没有 fast-trap 但启用了中断向量表。因此其代理软中断时不必存取上下文，中断响应速度较快；
+3. `main` 分支使用 fast-trap 和中断向量表
+
+测试性能数据见下表：
+
+| branch   | spec_version | marchid   | ipi       | time
+| -------- | ------------ | --------- | --------- | -
+| main     | 107700360    | 107756601 | 123088023 |  48.5%
+| vectored | 212014619    | 212212320 | 273411079 | 100.0%
+| slow     | 210191584    | 210286668 | 456087262 | 125.6%
+
+> 真实物理硬件上性能提升更为明显
