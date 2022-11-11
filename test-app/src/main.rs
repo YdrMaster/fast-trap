@@ -6,14 +6,16 @@
 use core::{
     arch::asm,
     mem::{forget, MaybeUninit},
-    ptr::NonNull,
+    ptr::{null, NonNull},
 };
+use dtb_walker::{Dtb, DtbObj, HeaderError, Str, WalkOperation};
 use fast_trap::{
     load_direct_trap_entry, reuse_stack_for_trap, trap_entry, FastContext, FastResult, FlowContext,
     FreeTrapStack, TrapStackBlock,
 };
 use rcore_console::log;
 use riscv::register::*;
+use sifive_test_device::SifiveTestDevice;
 use uart_16550::MmioSerialPort;
 
 #[link_section = ".bss.uninit"]
@@ -44,7 +46,7 @@ unsafe extern "C" fn exception() -> ! {
     asm!("unimp", options(noreturn),)
 }
 
-extern "C" fn rust_main() {
+extern "C" fn rust_main(_hartid: usize, dtb: *const u8) {
     // 清零 bss 段
     extern "C" {
         static mut sbss: u64;
@@ -52,7 +54,41 @@ extern "C" fn rust_main() {
     }
     unsafe { r0::zero_bss(&mut sbss, &mut ebss) };
     // 初始化打印
-    unsafe { UART = MaybeUninit::new(MmioSerialPort::new(0x1000_0000)) };
+    unsafe {
+        Dtb::from_raw_parts_filtered(dtb, |e| {
+            matches!(
+                e,
+                HeaderError::Misaligned(4) | HeaderError::LastCompVersion(_)
+            )
+        })
+    }
+    .unwrap()
+    .walk(|path, obj| match obj {
+        DtbObj::SubNode { name } => {
+            if path.is_root() && name == Str::from("soc") {
+                WalkOperation::StepInto
+            } else if path.level() == 1 {
+                #[inline]
+                unsafe fn parse_address(str: &[u8]) -> usize {
+                    usize::from_str_radix(core::str::from_utf8_unchecked(str), 16).unwrap()
+                }
+
+                if name.starts_with("test") {
+                    unsafe { TEST = parse_address(&name.as_bytes()[5..]) as _ };
+                } else if name.starts_with("uart") {
+                    unsafe {
+                        UART = MaybeUninit::new(MmioSerialPort::new(parse_address(
+                            &name.as_bytes()[5..],
+                        )))
+                    };
+                }
+                WalkOperation::StepOver
+            } else {
+                WalkOperation::StepOver
+            }
+        }
+        DtbObj::Property(_) => WalkOperation::StepOver,
+    });
     rcore_console::init_console(&Console);
     rcore_console::set_log_level(option_env!("LOG"));
     rcore_console::test_log();
@@ -135,7 +171,7 @@ extern "C" fn fast_handler(
         match cause.cause() {
             T::Exception(E::IllegalInstruction) => {
                 log::info!("Test pass");
-                loop {}
+                unsafe { &*TEST }.pass()
             }
             T::Exception(E::Unknown) => {
                 mepc::write(exception as _);
@@ -155,7 +191,7 @@ extern "C" fn fast_handler(
         match cause.cause() {
             T::Exception(E::IllegalInstruction) => {
                 log::info!("Test pass");
-                loop {}
+                unsafe { &*TEST }.pass()
             }
             T::Exception(E::Unknown) => {
                 sepc::write(exception as _);
@@ -172,7 +208,7 @@ extern "C" fn fast_handler(
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     log::error!("{info}");
-    loop {}
+    unsafe { &*TEST }.fail(-1 as _)
 }
 
 #[repr(C, align(4096))]
@@ -204,6 +240,7 @@ impl Drop for StackRef {
 
 struct Console;
 static mut UART: MaybeUninit<MmioSerialPort> = MaybeUninit::uninit();
+static mut TEST: *const SifiveTestDevice = null();
 
 impl rcore_console::Console for Console {
     #[inline]
