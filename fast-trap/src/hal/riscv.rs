@@ -1,6 +1,47 @@
 ﻿use crate::TrapHandler;
 use core::alloc::Layout;
 
+#[cfg(target_arch = "riscv32")]
+#[macro_use]
+mod arch {
+    macro_rules! save {
+        ($reg:expr => $ptr:expr; $pos:expr) => {
+            concat!("sw ", $reg, ", 4*", $pos, "(", $ptr, ")")
+        };
+    }
+
+    macro_rules! load {
+        ($ptr:expr; $pos:expr => $reg:expr) => {
+            concat!("lw ", $reg, ", 4*", $pos, "(", $ptr, ")")
+        };
+
+        ($ptr:expr; $pos:expr => $reg:expr, label: $label:expr) => {
+            concat!($label, ":", load!($ptr;$pos => $reg))
+        };
+    }
+}
+#[cfg(target_arch = "riscv64")]
+#[macro_use]
+mod arch {
+    macro_rules! save {
+        ($reg:expr => $ptr:expr; $pos:expr) => {
+            concat!("sd ", $reg, ", 8*", $pos, '(', $ptr, ')')
+        };
+    }
+
+    macro_rules! load {
+        ($ptr:expr; $pos:expr => $reg:expr) => {
+            concat!("ld ", $reg, ", 8*", $pos, '(', $ptr, ')')
+        };
+
+        ($ptr:expr; $pos:expr => $reg:expr, label: $label:expr) => {
+            concat!($label, ':', load!($ptr;$pos => $reg))
+        };
+    }
+}
+
+use super::{exchange, r#return};
+
 /// 陷入上下文。
 ///
 /// 保存了陷入时的寄存器状态。包括所有通用寄存器和 `pc`。
@@ -47,5 +88,131 @@ pub unsafe extern "C" fn reuse_stack_for_trap() {
         size = const -(LAYOUT.size() as isize),
         mask = const !(LAYOUT.align() as isize - 1) ,
         options(noreturn)
+    )
+}
+
+/// 陷入处理例程。
+///
+/// # Safety
+///
+/// 不要直接调用这个函数。暴露它仅仅是为了提供其入口的符号链接。
+#[naked]
+pub unsafe extern "C" fn trap_entry() {
+    core::arch::asm!(
+        ".align 2",
+        // 换栈
+        exchange!(),
+        // 加载上下文指针
+        save!("a0" => "sp";2),
+        load!("sp";0 => "a0"),
+        // 保存尽量少的寄存器
+        save!("ra" => "a0";0),
+        save!("t0" => "a0";1),
+        save!("t1" => "a0";2),
+        save!("t2" => "a0";3),
+        save!("t3" => "a0";4),
+        save!("t4" => "a0";5),
+        save!("t5" => "a0";6),
+        save!("t6" => "a0";7),
+        // 调用快速路径函数
+        //
+        // | reg    | position
+        // | ------ | -
+        // | ra     | `TrapHandler.context`
+        // | t0-t6  | `TrapHandler.context`
+        // | a0     | `TrapHandler.scratch`
+        // | a1-a7  | 参数寄存器
+        // | sp     | sscratch
+        // | gp, tp | gp, tp
+        // | s0-s11 | 不支持
+        //
+        // > 若要保留陷入上下文，
+        // > 必须在快速路径保存 a0-a7 到 `TrapHandler.context`，
+        // > 并进入完整路径执行后续操作。
+        // >
+        // > 若要切换上下文，在快速路径设置 gp/tp/sscratch/sepc 和 sstatus。
+        "mv   a0, sp",
+        load!("sp";1 => "ra"),
+        "jalr ra",
+        // 加载上下文指针
+        load!("sp";0 => "a1", label: 0),
+        // 0：设置少量参数寄存器
+        "   beqz  a0, 0f",
+        // 1：设置所有参数寄存器
+        "   addi  a0, a0, -1
+            beqz  a0, 1f
+        ",
+        // 2：设置所有调用者寄存器
+        "   addi  a0, a0, -1
+            beqz  a0, 2f
+        ",
+        // 3：设置所有寄存器
+        "   addi  a0, a0, -1
+            beqz  a0, 3f
+        ",
+        // 4：完整路径
+        save!("s0"  => "a1";16),
+        save!("s1"  => "a1";17),
+        save!("s2"  => "a1";18),
+        save!("s3"  => "a1";19),
+        save!("s4"  => "a1";20),
+        save!("s5"  => "a1";21),
+        save!("s6"  => "a1";22),
+        save!("s7"  => "a1";23),
+        save!("s8"  => "a1";24),
+        save!("s9"  => "a1";25),
+        save!("s10" => "a1";26),
+        save!("s11" => "a1";27),
+        // 调用完整路径函数
+        //
+        // | reg    | position
+        // | ------ | -
+        // | sp     | sscratch
+        // | gp, tp | gp, tp
+        // | else   | `TrapHandler.context`
+        //
+        // > 若要保留陷入上下文，
+        // > 在完整路径中保存 gp/tp/sp/pc 到 `TrapHandler.context`。
+        // >
+        // > 若要切换上下文，在完整路径设置 gp/tp/sscratch/sepc 和 sstatus。
+        "mv   a0, sp",
+        load!("sp"; 2 => "ra"),
+        "jalr ra",
+        "j    0b",
+        // 设置所有寄存器
+        load!("a1";16 => "s0", label: 3),
+        load!("a1";17 => "s1"),
+        load!("a1";18 => "s2"),
+        load!("a1";19 => "s3"),
+        load!("a1";20 => "s4"),
+        load!("a1";21 => "s5"),
+        load!("a1";22 => "s6"),
+        load!("a1";23 => "s7"),
+        load!("a1";24 => "s8"),
+        load!("a1";25 => "s9"),
+        load!("a1";26 => "s10"),
+        load!("a1";27 => "s11"),
+        // 设置所有调用者寄存器
+        load!("a1"; 0 => "ra", label: 2),
+        load!("a1"; 1 => "t0"),
+        load!("a1"; 2 => "t1"),
+        load!("a1"; 3 => "t2"),
+        load!("a1"; 4 => "t3"),
+        load!("a1"; 5 => "t4"),
+        load!("a1"; 6 => "t5"),
+        load!("a1"; 7 => "t6"),
+        // 设置所有参数寄存器
+        load!("a1";10 => "a2", label: 1),
+        load!("a1";11 => "a3"),
+        load!("a1";12 => "a4"),
+        load!("a1";13 => "a5"),
+        load!("a1";14 => "a6"),
+        load!("a1";15 => "a7"),
+        // 设置少量参数寄存器
+        load!("a1"; 8 => "a0", label: 0),
+        load!("a1"; 9 => "a1"),
+        exchange!(),
+        r#return!(),
+        options(noreturn),
     )
 }
