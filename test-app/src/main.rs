@@ -7,11 +7,12 @@ use core::{
     arch::asm,
     mem::{forget, MaybeUninit},
     ptr::{null, NonNull},
+    unreachable,
 };
 use dtb_walker::{Dtb, DtbObj, HeaderError, Str, WalkOperation};
 use fast_trap::{
-    load_direct_trap_entry, reuse_stack_for_trap, trap_entry, FastContext, FastResult, FlowContext,
-    FreeTrapStack, TrapStackBlock,
+    load_direct_trap_entry, reuse_stack_for_trap, soft_trap, trap_entry, FastContext, FastResult,
+    FlowContext, FreeTrapStack, TrapStackBlock,
 };
 use rcore_console::log;
 use riscv::register::*;
@@ -20,6 +21,7 @@ use uart_16550::MmioSerialPort;
 
 #[link_section = ".bss.uninit"]
 static mut ROOT_STACK: Stack = Stack([0; 4096]);
+static mut FREE_STACK: Stack = Stack([0; 4096]);
 static mut ROOT_CONTEXT: FlowContext = FlowContext::ZERO;
 
 #[naked]
@@ -133,17 +135,30 @@ extern "C" fn rust_main(_hartid: usize, dtb: *const u8) {
     .unwrap()
     .load();
 
+    {
+        // 叠加一个陷入栈用于临时保护
+        let _loaded = FreeTrapStack::new(
+            StackRef(unsafe { &mut FREE_STACK }),
+            context_ptr,
+            fast_handler,
+        )
+        .unwrap()
+        .load();
+        // 模拟陷入
+        unsafe { soft_trap(cause::CALL) };
+    }
+
     #[cfg(feature = "m-mode")]
     {
         assert_ne!(0x5050, mscratch::read());
         log::debug!("mscratch: {:#x}", mscratch::read());
-        unsafe { asm!("csrw mcause, {}", in(reg) 24) };
+        unsafe { asm!("csrw mcause, {}", in(reg) cause::BOOT) };
     }
     #[cfg(feature = "s-mode")]
     {
         assert_ne!(0x5050, sscratch::read());
         log::debug!("sscratch: {:#x}", sscratch::read());
-        unsafe { asm!("csrw scause, {}", in(reg) 24) };
+        unsafe { asm!("csrw scause, {}", in(reg) cause::BOOT) };
     }
 
     // 忘了它，在汇编里触发陷入还要用
@@ -151,6 +166,11 @@ extern "C" fn rust_main(_hartid: usize, dtb: *const u8) {
 
     // 加载陷入入口
     unsafe { load_direct_trap_entry() };
+}
+
+mod cause {
+    pub(super) const BOOT: usize = 24;
+    pub(super) const CALL: usize = 25;
 }
 
 extern "C" fn fast_handler(
@@ -174,10 +194,13 @@ extern "C" fn fast_handler(
                 unsafe { &*TEST }.pass()
             }
             T::Exception(E::Unknown) => {
-                mepc::write(exception as _);
+                match cause.bits() {
+                    cause::BOOT => mepc::write(exception as _),
+                    cause::CALL => log::warn!("call fast-trap inline!"),
+                    _ => unreachable!(),
+                }
                 unsafe { mstatus::set_mpp(mstatus::MPP::Machine) };
-                let a0 = ctx.a0();
-                ctx.regs().a = [a0, a1, a2, a3, a4, a5, a6, a7];
+                ctx.regs().a = [ctx.a0(), a1, a2, a3, a4, a5, a6, a7];
                 ctx.restore()
             }
             T::Exception(_) | T::Interrupt(_) => unreachable!(),
@@ -194,10 +217,13 @@ extern "C" fn fast_handler(
                 unsafe { &*TEST }.pass()
             }
             T::Exception(E::Unknown) => {
-                sepc::write(exception as _);
+                match cause.bits() {
+                    cause::BOOT => mepc::write(exception as _),
+                    cause::CALL => log::warn!("call fast-trap inline!"),
+                    _ => unreachable!(),
+                }
                 unsafe { sstatus::set_spp(sstatus::SPP::Supervisor) };
-                let a0 = ctx.a0();
-                ctx.regs().a = [a0, a1, a2, a3, a4, a5, a6, a7];
+                ctx.regs().a = [ctx.a0(), a1, a2, a3, a4, a5, a6, a7];
                 ctx.restore()
             }
             T::Exception(_) | T::Interrupt(_) => unreachable!(),
